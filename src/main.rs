@@ -62,7 +62,7 @@ struct PageContext {
     main_content: String,
 }
 
-const NATIVE_HOMEPAGE: &str = r#"
+const NATIVE_HOMEPAGE: &str = r##"
 <!DOCTYPE html>
 <html>
 <head>
@@ -129,14 +129,40 @@ const NATIVE_HOMEPAGE: &str = r#"
             color: #808080;
         }
         .logo {
-            font-size: 4rem;
-            margin-bottom: 16px;
+            width: 90px;
+            height: 90px;
+            margin: 0 auto 24px auto;
+            filter: drop-shadow(0 0 16px rgba(118, 185, 0, 0.4));
+            animation: float 4s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="logo">🐧</div>
+        <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#3584e4" />
+                    <stop offset="100%" stop-color="#76B900" />
+                </linearGradient>
+                <linearGradient id="tuxBelly" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#e0e0e0" />
+                    <stop offset="100%" stop-color="#ffffff" />
+                </linearGradient>
+            </defs>
+            <path d="M50 10 C35 10 25 30 25 50 C25 80 35 90 50 90 C65 90 75 80 75 50 C75 30 65 10 50 10 Z" fill="url(#tuxGrad)"/>
+            <path d="M50 35 C40 35 32 45 32 65 C32 80 40 85 50 85 C60 85 68 80 68 65 C68 45 60 35 50 35 Z" fill="url(#tuxBelly)"/>
+            <circle cx="43" cy="35" r="5" fill="#fff"/><circle cx="57" cy="35" r="5" fill="#fff"/>
+            <circle cx="44" cy="35" r="2" fill="#242424"/><circle cx="56" cy="35" r="2" fill="#242424"/>
+            <path d="M46 42 Q50 48 54 42 Q50 44 46 42 Z" fill="#FFA500"/>
+            <path d="M46 42 Q50 46 54 42 Q50 40 46 42 Z" fill="#FF8C00"/>
+            <ellipse cx="35" cy="88" rx="8" ry="4" fill="#FFA500"/>
+            <ellipse cx="65" cy="88" rx="8" ry="4" fill="#FFA500"/>
+        </svg>
         <h1>Linux Atlas</h1>
         <p>What do you want to search?</p>
         <form class="search-box" id="search-form">
@@ -161,7 +187,7 @@ const NATIVE_HOMEPAGE: &str = r#"
     </script>
 </body>
 </html>
-"#;
+"##;
 
 #[tokio::main]
 async fn main() {
@@ -671,7 +697,7 @@ fn build_ui(app: &adw::Application) {
         layout_box.append(&page);
         layout_box.append(&apply_btn);
         
-        //toolbar_view.set_content(Some(&layout_box));
+        toolbar_view.append(&layout_box);
         pref_win.set_content(Some(&toolbar_view));
         
         // Update model dropdown when provider changes
