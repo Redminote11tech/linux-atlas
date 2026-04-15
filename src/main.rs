@@ -4,8 +4,12 @@ use webkit6 as webkit;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 use std::cell::RefCell;
-use reqwest::header::{USER_AGENT, CONTENT_TYPE, ACCEPT};
-use futures::StreamExt;
+use async_openai::{
+    config::OpenAIConfig,
+    Client,
+    types::{CreateChatCompletionRequestArgs, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs},
+};
+use std::env;
 
 use gtk::prelude::*;
 use adw::prelude::*;
@@ -17,23 +21,6 @@ struct PageContext {
     title: String,
     highlighted_text: String,
     main_content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct DuckDuckGoMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct DuckDuckGoRequest {
-    model: String,
-    messages: Vec<DuckDuckGoMessage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DuckDuckGoResponse {
-    message: Option<String>,
 }
 
 const NATIVE_HOMEPAGE: &str = r#"
@@ -125,7 +112,6 @@ const NATIVE_HOMEPAGE: &str = r#"
             
             let uri = query;
             if (query.startsWith('http://') || query.startsWith('https://')) {
-                // already a URL
             } else if (query.includes('.') && !query.includes(' ')) {
                 uri = 'https://' + query;
             } else {
@@ -140,6 +126,8 @@ const NATIVE_HOMEPAGE: &str = r#"
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
+    
     let app = adw::Application::builder()
         .application_id("com.github.linux_atlas")
         .build();
@@ -177,6 +165,113 @@ async fn main() {
     app.connect_activate(build_ui);
 
     app.run();
+}
+
+fn create_tab(
+    tab_view: &adw::TabView,
+    content_manager: &webkit::UserContentManager,
+    settings: &webkit::Settings,
+    accepted_http: Rc<RefCell<std::collections::HashSet<String>>>,
+    url_entry: gtk::Entry,
+) -> webkit::WebView {
+    let web_view = webkit::WebView::builder()
+        .user_content_manager(content_manager)
+        .settings(settings)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+
+    let tv_clone = tab_view.clone();
+    let ue_clone = url_entry.clone();
+    web_view.connect_uri_notify(move |wv| {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
+                if child_wv == *wv {
+                    if let Some(uri) = wv.uri() {
+                        if uri == "atlas://home" || uri == "atlas://home/" {
+                            ue_clone.set_text("");
+                        } else {
+                            ue_clone.set_text(&uri);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let tv_clone2 = tab_view.clone();
+    web_view.connect_title_notify(move |wv| {
+        for i in 0..tv_clone2.n_pages() {
+            let page = tv_clone2.nth_page(i);
+            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
+                if child_wv == *wv {
+                    if let Some(title) = wv.title() {
+                        if title.is_empty() {
+                            page.set_title("New Tab");
+                        } else {
+                            page.set_title(&title);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    });
+
+    let ah_clone = accepted_http.clone();
+    web_view.connect_decide_policy(move |wv, decision, decision_type| {
+        if decision_type == webkit::PolicyDecisionType::NavigationAction {
+            if let Some(nav_decision) = decision.downcast_ref::<webkit::NavigationPolicyDecision>() {
+                if let Some(action) = nav_decision.navigation_action() {
+                    if let Some(request) = action.request() {
+                        if let Some(uri) = request.uri() {
+                            let uri_str = uri.as_str();
+                            if uri_str.starts_with("http://") && !uri_str.starts_with("http://localhost") && !uri_str.starts_with("http://127.0.0.1") {
+                                let domain = uri_str.split('/').nth(2).unwrap_or("").to_string();
+                                if !ah_clone.borrow().contains(&domain) {
+                                    decision.ignore();
+                                    
+                                    if let Some(win) = wv.root().and_downcast::<gtk::Window>() {
+                                        let dialog = gtk::MessageDialog::builder()
+                                            .text("Unsafe Connection")
+                                            .secondary_text("This website is not using HTTPS (TLS). Your connection is not private.\n\nAre you sure you want to proceed?")
+                                            .message_type(gtk::MessageType::Warning)
+                                            .buttons(gtk::ButtonsType::None)
+                                            .transient_for(&win)
+                                            .build();
+                                            
+                                        dialog.add_button("uhh no, with linux", gtk::ResponseType::Reject);
+                                        dialog.add_button("Yes, I have Freedom", gtk::ResponseType::Accept);
+                                        
+                                        let wv_c = wv.clone();
+                                        let uri_c = uri_str.to_string();
+                                        let ah_c2 = ah_clone.clone();
+                                        
+                                        dialog.connect_response(move |dlg, response| {
+                                            if response == gtk::ResponseType::Accept {
+                                                ah_c2.borrow_mut().insert(domain.clone());
+                                                wv_c.load_uri(&uri_c);
+                                            }
+                                            dlg.destroy();
+                                        });
+                                        dialog.present();
+                                    }
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    });
+
+    let page = tab_view.append(&web_view);
+    page.set_title("New Tab");
+    tab_view.set_selected_page(&page);
+    
+    web_view
 }
 
 fn build_ui(app: &adw::Application) {
@@ -232,8 +327,6 @@ fn build_ui(app: &adw::Application) {
         .enable_developer_extras(true)
         .build();
 
-    // Built-in Adblock (WebExtensions)
-    // We use WebKit's native content filtering to block common ad domains without needing Chromium extensions.
     let filter_path_str = std::env::temp_dir().to_string_lossy().to_string();
     let filter_manager = webkit::UserContentFilterStore::new(&filter_path_str);
     let filter_json = r#"
@@ -242,8 +335,6 @@ fn build_ui(app: &adw::Application) {
         {"trigger": {"url-filter": ".*(?:amazon-adsystem\\.com|adnxs\\.com|taboola\\.com).*"}, "action": {"type": "block"}}
     ]
     "#;
-    
-    // Save filter to a temporary file
     let filter_path = std::env::temp_dir().join("atlas_adblock.json");
     std::fs::write(&filter_path, filter_json).unwrap();
     
@@ -256,34 +347,31 @@ fn build_ui(app: &adw::Application) {
             if let Ok(filter) = result {
                 content_manager_clone.add_filter(&filter);
                 println!("Adblock filters loaded successfully.");
-            } else {
-                println!("Failed to load adblock filters.");
             }
         }
     );
 
-    let web_view = webkit::WebView::builder()
-        .user_content_manager(&content_manager)
-        .settings(&settings)
-        .hexpand(true)
-        .vexpand(true)
+    let tab_view = adw::TabView::new();
+    let tab_bar = adw::TabBar::builder()
+        .view(&tab_view)
+        .autohide(false)
         .build();
-        
-    web_view.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
 
     let header_bar = adw::HeaderBar::new();
     let url_entry = gtk::Entry::builder()
-        .placeholder_text("Search or enter address")
+        .placeholder_text("Search the web or enter address")
         .hexpand(true)
         .max_width_chars(50)
         .build();
 
+    let new_tab_btn = gtk::Button::from_icon_name("tab-new-symbolic");
     let home_btn = gtk::Button::from_icon_name("go-home-symbolic");
     let back_btn = gtk::Button::from_icon_name("go-previous-symbolic");
     let fwd_btn = gtk::Button::from_icon_name("go-next-symbolic");
     let reload_btn = gtk::Button::from_icon_name("view-refresh-symbolic");
     let toggle_ai_btn = gtk::Button::from_icon_name("view-sidebar-symbolic");
 
+    header_bar.pack_start(&new_tab_btn);
     header_bar.pack_start(&home_btn);
     header_bar.pack_start(&back_btn);
     header_bar.pack_start(&fwd_btn);
@@ -291,19 +379,59 @@ fn build_ui(app: &adw::Application) {
     header_bar.set_title_widget(Some(&url_entry));
     header_bar.pack_end(&toggle_ai_btn);
 
-    let wv_clone = web_view.clone();
-    home_btn.connect_clicked(move |_| {
-        wv_clone.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
+    let accepted_http: Rc<RefCell<std::collections::HashSet<String>>> = Rc::new(RefCell::new(std::collections::HashSet::new()));
+
+    // Create the initial tab
+    let wv_initial = create_tab(&tab_view, &content_manager, &settings, accepted_http.clone(), url_entry.clone());
+    wv_initial.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
+
+    let tv_clone = tab_view.clone();
+    let cm_clone = content_manager.clone();
+    let settings_clone = settings.clone();
+    let ue_clone = url_entry.clone();
+    let ah_clone = accepted_http.clone();
+    new_tab_btn.connect_clicked(move |_| {
+        let wv = create_tab(&tv_clone, &cm_clone, &settings_clone, ah_clone.clone(), ue_clone.clone());
+        wv.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
     });
 
-    let wv_clone = web_view.clone();
-    back_btn.connect_clicked(move |_| wv_clone.go_back());
-    let wv_clone = web_view.clone();
-    fwd_btn.connect_clicked(move |_| wv_clone.go_forward());
-    let wv_clone = web_view.clone();
-    reload_btn.connect_clicked(move |_| wv_clone.reload());
+    let tv_clone = tab_view.clone();
+    home_btn.connect_clicked(move |_| {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                wv.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
+            }
+        }
+    });
 
-    let wv_clone = web_view.clone();
+    let tv_clone = tab_view.clone();
+    back_btn.connect_clicked(move |_| {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                wv.go_back();
+            }
+        }
+    });
+
+    let tv_clone = tab_view.clone();
+    fwd_btn.connect_clicked(move |_| {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                wv.go_forward();
+            }
+        }
+    });
+
+    let tv_clone = tab_view.clone();
+    reload_btn.connect_clicked(move |_| {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                wv.reload();
+            }
+        }
+    });
+
+    let tv_clone = tab_view.clone();
     url_entry.connect_activate(move |entry| {
         let text = entry.text().to_string();
         let uri = if text.starts_with("http://") || text.starts_with("https://") {
@@ -313,23 +441,41 @@ fn build_ui(app: &adw::Application) {
         } else {
             format!("https://google.com/search?q={}", text)
         };
-        wv_clone.load_uri(&uri);
+        
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                wv.load_uri(&uri);
+            }
+        }
+    });
+
+    let ue_clone = url_entry.clone();
+    tab_view.connect_selected_page_notify(move |tv| {
+        if let Some(page) = tv.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                if let Some(uri) = wv.uri() {
+                    if uri == "atlas://home" || uri == "atlas://home/" {
+                        ue_clone.set_text("");
+                    } else {
+                        ue_clone.set_text(&uri);
+                    }
+                } else {
+                    ue_clone.set_text("");
+                }
+            }
+        }
+    });
+
+    // Close tabs logic
+    tab_view.connect_close_page(move |tv, page| {
+        tv.close_page_finish(page, true);
+        true.into()
     });
 
     let main_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main_content.append(&header_bar);
-    main_content.append(&web_view);
-
-    let url_entry_clone = url_entry.clone();
-    web_view.connect_uri_notify(move |wv: &webkit::WebView| {
-        if let Some(uri) = wv.uri() {
-            if uri == "atlas://home" || uri == "atlas://home/" {
-                url_entry_clone.set_text("");
-            } else {
-                url_entry_clone.set_text(&uri);
-            }
-        }
-    });
+    main_content.append(&tab_bar);
+    main_content.append(&tab_view);
 
     // --- Sidebar ---
     let sidebar_content = gtk::Box::builder()
@@ -343,7 +489,7 @@ fn build_ui(app: &adw::Application) {
     let chat_header = adw::HeaderBar::new();
     chat_header.set_show_end_title_buttons(true);
     chat_header.set_show_start_title_buttons(false);
-    let title_label = gtk::Label::new(Some("Atlas AI (Duck.ai)"));
+    let title_label = gtk::Label::new(Some("Atlas AI Agent"));
     title_label.add_css_class("title");
     chat_header.set_title_widget(Some(&title_label));
 
@@ -362,7 +508,7 @@ fn build_ui(app: &adw::Application) {
     let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     welcome_box.set_halign(gtk::Align::Center);
     let welcome_label = gtk::Label::builder()
-        .label("👋 Hello, I am Atlas.\n\nNo API Key required! I use DuckDuckGo's internal AI endpoints. I can see the pages you visit and execute clicks!")
+        .label("👋 Hello, I am Atlas.\n\nI run on the stable Nvidia API. Please add your key to `.env` if you haven't yet.")
         .wrap(true)
         .justify(gtk::Justification::Center)
         .css_classes(["dim-label"])
@@ -388,9 +534,6 @@ fn build_ui(app: &adw::Application) {
     let latest_context: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
     let lc_clone = latest_context.clone();
     
-    let current_vqd: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
-    let _cv_clone = current_vqd.clone();
-
     content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
         if let Some(js_val) = message.to_json(0) {
             let json_str = js_val.to_string();
@@ -403,27 +546,30 @@ fn build_ui(app: &adw::Application) {
     });
 
     let sv_clone = split_view.clone();
-    let wv_clone = web_view.clone();
+    let tv_clone = tab_view.clone();
     toggle_ai_btn.connect_clicked(move |_| {
         let current = sv_clone.reveals_flap();
         sv_clone.set_reveal_flap(!current);
         
         if !current {
-            wv_clone.evaluate_javascript(
-                "window.dispatchEvent(new Event('atlas:request_context'));",
-                None,
-                None,
-                None::<&gtk::gio::Cancellable>,
-                |_| {} 
-            );
+            if let Some(page) = tv_clone.selected_page() {
+                if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                    wv.evaluate_javascript(
+                        "window.dispatchEvent(new Event('atlas:request_context'));",
+                        None,
+                        None,
+                        None::<&gtk::gio::Cancellable>,
+                        |_| {} 
+                    );
+                }
+            }
         }
     });
     
-    let wv_for_agent = web_view.clone();
     let chat_box_clone = chat_box.clone();
     let latest_context_ai = latest_context.clone();
     let chat_history_scroll = chat_history.clone();
-    let vqd_state = current_vqd.clone();
+    let tv_agent_clone = tab_view.clone();
     
     chat_input.connect_activate(move |entry| {
         let user_prompt = entry.text().to_string();
@@ -458,24 +604,13 @@ fn build_ui(app: &adw::Application) {
         let context_opt = latest_context_ai.borrow().clone();
         let (sender, receiver) = async_channel::unbounded::<String>();
         let ai_label_clone = ai_label.clone();
-        let wv_for_agent_clone = wv_for_agent.clone();
-        let vqd_clone_for_ui = vqd_state.clone();
+        let tv_agent_clone2 = tv_agent_clone.clone();
         
         gtk::glib::spawn_future_local(async move {
             while let Ok(chunk) = receiver.recv().await {
-                if chunk == "[ERROR_STATUS]" {
-                     ai_label_clone.set_label("Duck.ai rejected the VQD request. Try again later or use Nvidia API.");
+                if chunk == "[ERROR]" {
+                     ai_label_clone.set_label("Failed to reach Nvidia API. Ensure NVIDIA_API_KEY is in .env");
                      break;
-                }
-                if chunk == "[ERROR_STREAM]" {
-                     ai_label_clone.set_label("Duck.ai stream closed unexpectedly.");
-                     break;
-                }
-                
-                if chunk.starts_with("[VQD_UPDATE:") {
-                    let new_vqd = chunk.trim_start_matches("[VQD_UPDATE:").trim_end_matches("]");
-                    *vqd_clone_for_ui.borrow_mut() = new_vqd.to_string();
-                    continue;
                 }
                 
                 if chunk.starts_with("[CLICK: ") && chunk.ends_with("]") {
@@ -537,13 +672,17 @@ fn build_ui(app: &adw::Application) {
                      }})();
                      "#, selector);
                      
-                     wv_for_agent_clone.evaluate_javascript(
-                         &ghost_script,
-                         None,
-                         None,
-                         None::<&gtk::gio::Cancellable>,
-                         |_| {}
-                     );
+                     if let Some(page) = tv_agent_clone2.selected_page() {
+                         if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                             wv.evaluate_javascript(
+                                 &ghost_script,
+                                 None,
+                                 None,
+                                 None::<&gtk::gio::Cancellable>,
+                                 |_| {}
+                             );
+                         }
+                     }
                      
                      ai_label_clone.set_label(&format!("I clicked the element: {}", selector));
                      continue;
@@ -560,33 +699,22 @@ fn build_ui(app: &adw::Application) {
         });
 
         let sender_clone = sender.clone();
-        let current_vqd_val = vqd_state.borrow().clone();
         
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let client = reqwest::Client::new();
-                let mut vqd = current_vqd_val;
-                
-                if vqd.is_empty() {
-                    let status_res = client.get("https://duckduckgo.com/duckchat/v1/status")
-                        .header("x-vqd-accept", "1")
-                        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                        .send()
-                        .await;
-                        
-                    if let Ok(res) = status_res {
-                        if let Some(vqd_header) = res.headers().get("x-vqd-4") {
-                            vqd = vqd_header.to_str().unwrap_or("").to_string();
-                        }
-                    }
-                }
-                
-                if vqd.is_empty() {
-                    let _ = sender_clone.send("[ERROR_STATUS]".to_string()).await;
+                let api_key = env::var("NVIDIA_API_KEY").unwrap_or_default();
+                if api_key.is_empty() || api_key.starts_with("nvapi-XXXX") {
+                    let _ = sender_clone.send("[ERROR]".to_string()).await;
                     return;
                 }
 
+                let config = OpenAIConfig::new()
+                    .with_api_key(api_key)
+                    .with_api_base("https://integrate.api.nvidia.com/v1");
+                
+                let client = Client::with_config(config);
+                
                 let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
                 system_prompt.push_str("If the user asks you to click a button or a link, respond ONLY with the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
                 if let Some(ctx) = context_opt {
@@ -608,56 +736,30 @@ fn build_ui(app: &adw::Application) {
                     }
                 }
                 
-                let messages = vec![
-                    DuckDuckGoMessage {
-                        role: "user".to_string(), 
-                        content: format!("{}\n\nUser request: {}", system_prompt, user_prompt),
-                    }
-                ];
+                let request = CreateChatCompletionRequestArgs::default()
+                    .model("meta/llama-3.1-405b-instruct")
+                    .messages([
+                        ChatCompletionRequestSystemMessageArgs::default()
+                            .content(system_prompt)
+                            .build().unwrap().into(),
+                        ChatCompletionRequestUserMessageArgs::default()
+                            .content(user_prompt)
+                            .build().unwrap().into(),
+                    ])
+                    .build()
+                    .unwrap();
 
-                let request_body = DuckDuckGoRequest {
-                    model: "claude-3-haiku-20240307".to_string(),
-                    messages,
-                };
-
-                let chat_res = client.post("https://duckduckgo.com/duckchat/v1/chat")
-                    .header("x-vqd-4", &vqd)
-                    .header(CONTENT_TYPE, "application/json")
-                    .header(ACCEPT, "text/event-stream")
-                    .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                    .json(&request_body)
-                    .send()
-                    .await;
-
-                match chat_res {
-                    Ok(res) => {
-                        if let Some(new_vqd_header) = res.headers().get("x-vqd-4") {
-                            if let Ok(new_vqd) = new_vqd_header.to_str() {
-                                let _ = sender_clone.send(format!("[VQD_UPDATE:{}]", new_vqd)).await;
-                            }
-                        }
-
-                        let mut stream = res.bytes_stream();
-                        while let Some(chunk_result) = stream.next().await {
-                            if let Ok(bytes) = chunk_result {
-                                let text = String::from_utf8_lossy(&bytes);
-                                for line in text.lines() {
-                                    if line.starts_with("data: ") {
-                                        let data = &line[6..];
-                                        if data == "[DONE]" { break; }
-                                        if let Ok(parsed) = serde_json::from_str::<DuckDuckGoResponse>(data) {
-                                            if let Some(msg) = parsed.message {
-                                                let _ = sender_clone.send(msg).await;
-                                            }
-                                        }
-                                    }
-                                }
+                match client.chat().create(request).await {
+                    Ok(response) => {
+                        if let Some(choice) = response.choices.first() {
+                            if let Some(content) = &choice.message.content {
+                                 let _ = sender_clone.send(content.to_string()).await;
                             }
                         }
                     },
                     Err(e) => {
-                        println!("Stream Error: {:?}", e);
-                        let _ = sender_clone.send("[ERROR_STREAM]".to_string()).await;
+                        println!("API Error: {:?}", e);
+                        let _ = sender_clone.send("[ERROR]".to_string()).await;
                     }
                 }
             });
