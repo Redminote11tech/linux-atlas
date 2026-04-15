@@ -4,12 +4,8 @@ use webkit6 as webkit;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 use std::cell::RefCell;
-use async_openai::{
-    config::OpenAIConfig,
-    Client,
-    types::{CreateChatCompletionRequestArgs, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs},
-};
-use std::env;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CONTENT_TYPE, ACCEPT};
+use futures::StreamExt;
 
 use gtk::prelude::*;
 use adw::prelude::*;
@@ -23,10 +19,25 @@ struct PageContext {
     main_content: String,
 }
 
+#[derive(Debug, Serialize)]
+struct DuckDuckGoMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DuckDuckGoRequest {
+    model: String,
+    messages: Vec<DuckDuckGoMessage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DuckDuckGoResponse {
+    message: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
-    
     let app = adw::Application::builder()
         .application_id("com.github.linux_atlas")
         .build();
@@ -180,7 +191,7 @@ fn build_ui(app: &adw::Application) {
     let chat_header = adw::HeaderBar::new();
     chat_header.set_show_end_title_buttons(true);
     chat_header.set_show_start_title_buttons(false);
-    let title_label = gtk::Label::new(Some("Atlas AI Agent"));
+    let title_label = gtk::Label::new(Some("Atlas AI (Duck.ai API)"));
     title_label.add_css_class("title");
     chat_header.set_title_widget(Some(&title_label));
 
@@ -200,7 +211,7 @@ fn build_ui(app: &adw::Application) {
     let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     welcome_box.set_halign(gtk::Align::Center);
     let welcome_label = gtk::Label::builder()
-        .label("👋 Hello, I am Atlas.\n\nI can see the pages you visit. Highlight text and ask me to summarize it, or ask me to click buttons for you!")
+        .label("👋 Hello, I am Atlas (Powered by Duck.ai).\n\nNo API Key required! I use DuckDuckGo's internal AI endpoints. I can see the pages you visit and execute clicks!")
         .wrap(true)
         .justify(gtk::Justification::Center)
         .css_classes(["dim-label"])
@@ -225,6 +236,10 @@ fn build_ui(app: &adw::Application) {
 
     let latest_context: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
     let lc_clone = latest_context.clone();
+    
+    // VQD token state for DuckDuckGo sessions
+    let current_vqd: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    let cv_clone = current_vqd.clone();
 
     content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
         if let Some(js_val) = message.to_json(0) {
@@ -258,6 +273,7 @@ fn build_ui(app: &adw::Application) {
     let chat_box_clone = chat_box.clone();
     let latest_context_ai = latest_context.clone();
     let chat_history_scroll = chat_history.clone();
+    let vqd_state = current_vqd.clone();
     
     chat_input.connect_activate(move |entry| {
         let user_prompt = entry.text().to_string();
@@ -266,7 +282,6 @@ fn build_ui(app: &adw::Application) {
         }
         entry.set_text("");
         
-        // User bubble
         let user_wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         user_wrapper.set_halign(gtk::Align::End);
         let user_label = gtk::Label::builder()
@@ -277,7 +292,6 @@ fn build_ui(app: &adw::Application) {
         user_wrapper.append(&user_label);
         chat_box_clone.append(&user_wrapper);
 
-        // AI bubble
         let ai_wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         ai_wrapper.set_halign(gtk::Align::Start);
         let ai_label = gtk::Label::builder()
@@ -288,7 +302,6 @@ fn build_ui(app: &adw::Application) {
         ai_wrapper.append(&ai_label);
         chat_box_clone.append(&ai_wrapper);
         
-        // Scroll to bottom
         let adj = chat_history_scroll.vadjustment();
         adj.set_value(adj.upper());
         
@@ -296,12 +309,23 @@ fn build_ui(app: &adw::Application) {
         let (sender, receiver) = async_channel::unbounded::<String>();
         let ai_label_clone = ai_label.clone();
         let wv_for_agent_clone = wv_for_agent.clone();
+        let vqd_clone_for_ui = vqd_state.clone();
         
         gtk::glib::spawn_future_local(async move {
             while let Ok(chunk) = receiver.recv().await {
-                if chunk == "[ERROR]" {
-                     ai_label_clone.set_label("Failed to reach Nvidia API. Check your .env key.");
+                if chunk == "[ERROR_STATUS]" {
+                     ai_label_clone.set_label("Duck.ai rejected the VQD request. Try again later.");
                      break;
+                }
+                if chunk == "[ERROR_STREAM]" {
+                     ai_label_clone.set_label("Duck.ai stream closed unexpectedly.");
+                     break;
+                }
+                
+                if chunk.starts_with("[VQD_UPDATE:") {
+                    let new_vqd = chunk.trim_start_matches("[VQD_UPDATE:").trim_end_matches("]");
+                    *vqd_clone_for_ui.borrow_mut() = new_vqd.to_string();
+                    continue;
                 }
                 
                 if chunk.starts_with("[CLICK: ") && chunk.ends_with("]") {
@@ -386,21 +410,34 @@ fn build_ui(app: &adw::Application) {
         });
 
         let sender_clone = sender.clone();
+        let current_vqd_val = vqd_state.borrow().clone();
+        
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let api_key = env::var("NVIDIA_API_KEY").unwrap_or_default();
-                if api_key == "nvapi-XXXXXX" || api_key.is_empty() {
-                    let _ = sender_clone.send("[ERROR]".to_string()).await;
+                let client = reqwest::Client::new();
+                let mut vqd = current_vqd_val;
+                
+                // Step 1: Get VQD token if we don't have one
+                if vqd.is_empty() {
+                    let status_res = client.get("https://duckduckgo.com/duckchat/v1/status")
+                        .header("x-vqd-accept", "1")
+                        .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+                        .send()
+                        .await;
+                        
+                    if let Ok(res) = status_res {
+                        if let Some(vqd_header) = res.headers().get("x-vqd-4") {
+                            vqd = vqd_header.to_str().unwrap_or("").to_string();
+                        }
+                    }
+                }
+                
+                if vqd.is_empty() {
+                    let _ = sender_clone.send("[ERROR_STATUS]".to_string()).await;
                     return;
                 }
 
-                let config = OpenAIConfig::new()
-                    .with_api_key(api_key)
-                    .with_api_base("https://integrate.api.nvidia.com/v1");
-                
-                let client = Client::with_config(config);
-                
                 let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
                 system_prompt.push_str("If the user asks you to click a button or a link, respond ONLY with the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
                 if let Some(ctx) = context_opt {
@@ -419,31 +456,60 @@ fn build_ui(app: &adw::Application) {
                         ctx.main_content
                     ));
                 }
+                
+                let messages = vec![
+                    DuckDuckGoMessage {
+                        role: "user".to_string(), // Duck.ai expects system prompts as 'user' role often, or we combine them
+                        content: format!("{}\n\nUser request: {}", system_prompt, user_prompt),
+                    }
+                ];
 
-                let request = CreateChatCompletionRequestArgs::default()
-                    .model("meta/llama-3.1-405b-instruct")
-                    .messages([
-                        ChatCompletionRequestSystemMessageArgs::default()
-                            .content(system_prompt)
-                            .build().unwrap().into(),
-                        ChatCompletionRequestUserMessageArgs::default()
-                            .content(user_prompt)
-                            .build().unwrap().into(),
-                    ])
-                    .build()
-                    .unwrap();
+                let request_body = DuckDuckGoRequest {
+                    model: "claude-3-haiku-20240307".to_string(), // Duck.ai supported model
+                    messages,
+                };
 
-                match client.chat().create(request).await {
-                    Ok(response) => {
-                        if let Some(choice) = response.choices.first() {
-                            if let Some(content) = &choice.message.content {
-                                 let _ = sender_clone.send(content.to_string()).await;
+                // Step 2: Stream the chat
+                let chat_res = client.post("https://duckduckgo.com/duckchat/v1/chat")
+                    .header("x-vqd-4", &vqd)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(ACCEPT, "text/event-stream")
+                    .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+                    .json(&request_body)
+                    .send()
+                    .await;
+
+                match chat_res {
+                    Ok(res) => {
+                        // Capture the next VQD token for the next message
+                        if let Some(new_vqd_header) = res.headers().get("x-vqd-4") {
+                            if let Ok(new_vqd) = new_vqd_header.to_str() {
+                                let _ = sender_clone.send(format!("[VQD_UPDATE:{}]", new_vqd)).await;
+                            }
+                        }
+
+                        let mut stream = res.bytes_stream();
+                        while let Some(chunk_result) = stream.next().await {
+                            if let Ok(bytes) = chunk_result {
+                                let text = String::from_utf8_lossy(&bytes);
+                                // Parse Server-Sent Events (SSE)
+                                for line in text.lines() {
+                                    if line.starts_with("data: ") {
+                                        let data = &line[6..];
+                                        if data == "[DONE]" { break; }
+                                        if let Ok(parsed) = serde_json::from_str::<DuckDuckGoResponse>(data) {
+                                            if let Some(msg) = parsed.message {
+                                                let _ = sender_clone.send(msg).await;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     },
                     Err(e) => {
-                        println!("API Error: {:?}", e);
-                        let _ = sender_clone.send("[ERROR]".to_string()).await;
+                        println!("Stream Error: {:?}", e);
+                        let _ = sender_clone.send("[ERROR_STREAM]".to_string()).await;
                     }
                 }
             });
