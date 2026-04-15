@@ -31,6 +31,36 @@ async fn main() {
         .application_id("com.github.linux_atlas")
         .build();
 
+    app.connect_startup(|_| {
+        let provider = gtk::CssProvider::new();
+        provider.load_from_data(
+            "
+            .sidebar-bg {
+                background-color: @window_bg_color;
+                border-left: 1px solid @borders;
+            }
+            .chat-bubble-user {
+                background-color: @accent_bg_color;
+                color: @accent_fg_color;
+                border-radius: 12px;
+                padding: 10px 14px;
+            }
+            .chat-bubble-ai {
+                background-color: @card_bg_color;
+                color: @card_fg_color;
+                border-radius: 12px;
+                padding: 10px 14px;
+                border: 1px solid @borders;
+            }
+            "
+        );
+        gtk::style_context_add_provider_for_display(
+            &gtk::gdk::Display::default().unwrap(),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    });
+
     app.connect_activate(build_ui);
 
     app.run();
@@ -46,6 +76,7 @@ fn build_ui(app: &adw::Application) {
 
     let split_view = adw::Flap::builder()
         .flap_position(gtk::PackType::End)
+        .fold_policy(adw::FlapFoldPolicy::Never)
         .build();
 
     let content_manager = webkit::UserContentManager::new();
@@ -85,9 +116,9 @@ fn build_ui(app: &adw::Application) {
 
     let web_view = webkit::WebView::builder()
         .user_content_manager(&content_manager)
+        .hexpand(true)
+        .vexpand(true)
         .build();
-    web_view.set_hexpand(true);
-    web_view.set_vexpand(true);
     web_view.load_uri("https://duckduckgo.com");
 
     let header_bar = adw::HeaderBar::new();
@@ -137,33 +168,53 @@ fn build_ui(app: &adw::Application) {
         }
     });
 
+    // --- Sidebar ---
+    let sidebar_content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .width_request(400)
+        .vexpand(true)
+        .hexpand(false)
+        .css_classes(["sidebar-bg"])
+        .build();
+
     let chat_header = adw::HeaderBar::new();
-    chat_header.set_show_end_title_buttons(false);
+    chat_header.set_show_end_title_buttons(true);
     chat_header.set_show_start_title_buttons(false);
     let title_label = gtk::Label::new(Some("Atlas AI Agent"));
     title_label.add_css_class("title");
     chat_header.set_title_widget(Some(&title_label));
 
     let chat_history = gtk::ScrolledWindow::builder()
-        .hexpand(true)
         .vexpand(true)
-        .width_request(350)
+        .hexpand(false)
         .build();
-    let chat_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    chat_box.set_margin_top(10);
-    chat_box.set_margin_bottom(10);
-    chat_box.set_margin_start(10);
-    chat_box.set_margin_end(10);
+        
+    let chat_box = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    chat_box.set_margin_top(16);
+    chat_box.set_margin_bottom(16);
+    chat_box.set_margin_start(16);
+    chat_box.set_margin_end(16);
     chat_history.set_child(Some(&chat_box));
+    
+    // Welcome message
+    let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    welcome_box.set_halign(gtk::Align::Center);
+    let welcome_label = gtk::Label::builder()
+        .label("👋 Hello, I am Atlas.\n\nI can see the pages you visit. Highlight text and ask me to summarize it, or ask me to click buttons for you!")
+        .wrap(true)
+        .justify(gtk::Justification::Center)
+        .css_classes(["dim-label"])
+        .build();
+    welcome_box.append(&welcome_label);
+    chat_box.append(&welcome_box);
 
     let chat_input = gtk::Entry::builder()
         .placeholder_text("Ask Atlas to analyze or act...")
-        .margin_start(10)
-        .margin_end(10)
-        .margin_bottom(10)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_bottom(12)
         .build();
 
-    let sidebar_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sidebar_content.append(&chat_header);
     sidebar_content.append(&chat_history);
     sidebar_content.append(&chat_input);
@@ -206,6 +257,7 @@ fn build_ui(app: &adw::Application) {
     let wv_for_agent = web_view.clone();
     let chat_box_clone = chat_box.clone();
     let latest_context_ai = latest_context.clone();
+    let chat_history_scroll = chat_history.clone();
     
     chat_input.connect_activate(move |entry| {
         let user_prompt = entry.text().to_string();
@@ -214,27 +266,33 @@ fn build_ui(app: &adw::Application) {
         }
         entry.set_text("");
         
+        // User bubble
+        let user_wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        user_wrapper.set_halign(gtk::Align::End);
         let user_label = gtk::Label::builder()
             .label(&user_prompt)
-            .halign(gtk::Align::End)
             .wrap(true)
-            .xalign(1.0)
-            .margin_bottom(10)
+            .css_classes(["chat-bubble-user"])
             .build();
-        user_label.add_css_class("accent");
-        chat_box_clone.append(&user_label);
+        user_wrapper.append(&user_label);
+        chat_box_clone.append(&user_wrapper);
 
+        // AI bubble
+        let ai_wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        ai_wrapper.set_halign(gtk::Align::Start);
         let ai_label = gtk::Label::builder()
             .label("Thinking...")
-            .halign(gtk::Align::Start)
             .wrap(true)
-            .xalign(0.0)
-            .margin_bottom(15)
+            .css_classes(["chat-bubble-ai"])
             .build();
-        chat_box_clone.append(&ai_label);
+        ai_wrapper.append(&ai_label);
+        chat_box_clone.append(&ai_wrapper);
+        
+        // Scroll to bottom
+        let adj = chat_history_scroll.vadjustment();
+        adj.set_value(adj.upper());
         
         let context_opt = latest_context_ai.borrow().clone();
-        
         let (sender, receiver) = async_channel::unbounded::<String>();
         let ai_label_clone = ai_label.clone();
         let wv_for_agent_clone = wv_for_agent.clone();
@@ -332,6 +390,11 @@ fn build_ui(app: &adw::Application) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let api_key = env::var("NVIDIA_API_KEY").unwrap_or_default();
+                if api_key == "nvapi-XXXXXX" || api_key.is_empty() {
+                    let _ = sender_clone.send("[ERROR]".to_string()).await;
+                    return;
+                }
+
                 let config = OpenAIConfig::new()
                     .with_api_key(api_key)
                     .with_api_base("https://integrate.api.nvidia.com/v1");
