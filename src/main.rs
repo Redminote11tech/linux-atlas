@@ -125,16 +125,23 @@ fn build_ui(app: &adw::Application) {
     content_manager.add_script(&extraction_script);
     content_manager.register_script_message_handler("atlas_bridge", None);
 
+    // Spoof a modern Chrome user agent so websites don't give us broken mobile/legacy pages
+    let settings = webkit::Settings::builder()
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .enable_developer_extras(true)
+        .build();
+
     let web_view = webkit::WebView::builder()
         .user_content_manager(&content_manager)
+        .settings(&settings)
         .hexpand(true)
         .vexpand(true)
         .build();
-    web_view.load_uri("https://duckduckgo.com");
+    web_view.load_uri("https://google.com");
 
     let header_bar = adw::HeaderBar::new();
     let url_entry = gtk::Entry::builder()
-        .placeholder_text("Search or enter address")
+        .placeholder_text("Search Google or enter address")
         .hexpand(true)
         .max_width_chars(50)
         .build();
@@ -159,11 +166,13 @@ fn build_ui(app: &adw::Application) {
 
     let wv_clone = web_view.clone();
     url_entry.connect_activate(move |entry| {
-        let text = entry.text();
+        let text = entry.text().to_string();
         let uri = if text.starts_with("http://") || text.starts_with("https://") {
-            text.to_string()
+            text
+        } else if text.contains('.') && !text.contains(' ') {
+            format!("https://{}", text) // e.g. typing "reddit.com" goes straight to site
         } else {
-            format!("https://duckduckgo.com/?q={}", text)
+            format!("https://google.com/search?q={}", text) // Standard search
         };
         wv_clone.load_uri(&uri);
     });
@@ -191,7 +200,7 @@ fn build_ui(app: &adw::Application) {
     let chat_header = adw::HeaderBar::new();
     chat_header.set_show_end_title_buttons(true);
     chat_header.set_show_start_title_buttons(false);
-    let title_label = gtk::Label::new(Some("Atlas AI (Duck.ai API)"));
+    let title_label = gtk::Label::new(Some("Atlas AI (Duck.ai)"));
     title_label.add_css_class("title");
     chat_header.set_title_widget(Some(&title_label));
 
@@ -207,7 +216,6 @@ fn build_ui(app: &adw::Application) {
     chat_box.set_margin_end(16);
     chat_history.set_child(Some(&chat_box));
     
-    // Welcome message
     let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     welcome_box.set_halign(gtk::Align::Center);
     let welcome_label = gtk::Label::builder()
@@ -237,9 +245,8 @@ fn build_ui(app: &adw::Application) {
     let latest_context: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
     let lc_clone = latest_context.clone();
     
-    // VQD token state for DuckDuckGo sessions
     let current_vqd: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
-    let cv_clone = current_vqd.clone();
+    let _cv_clone = current_vqd.clone();
 
     content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
         if let Some(js_val) = message.to_json(0) {
@@ -418,11 +425,10 @@ fn build_ui(app: &adw::Application) {
                 let client = reqwest::Client::new();
                 let mut vqd = current_vqd_val;
                 
-                // Step 1: Get VQD token if we don't have one
                 if vqd.is_empty() {
                     let status_res = client.get("https://duckduckgo.com/duckchat/v1/status")
                         .header("x-vqd-accept", "1")
-                        .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+                        .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                         .send()
                         .await;
                         
@@ -459,29 +465,27 @@ fn build_ui(app: &adw::Application) {
                 
                 let messages = vec![
                     DuckDuckGoMessage {
-                        role: "user".to_string(), // Duck.ai expects system prompts as 'user' role often, or we combine them
+                        role: "user".to_string(), 
                         content: format!("{}\n\nUser request: {}", system_prompt, user_prompt),
                     }
                 ];
 
                 let request_body = DuckDuckGoRequest {
-                    model: "claude-3-haiku-20240307".to_string(), // Duck.ai supported model
+                    model: "claude-3-haiku-20240307".to_string(),
                     messages,
                 };
 
-                // Step 2: Stream the chat
                 let chat_res = client.post("https://duckduckgo.com/duckchat/v1/chat")
                     .header("x-vqd-4", &vqd)
                     .header(CONTENT_TYPE, "application/json")
                     .header(ACCEPT, "text/event-stream")
-                    .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+                    .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                     .json(&request_body)
                     .send()
                     .await;
 
                 match chat_res {
                     Ok(res) => {
-                        // Capture the next VQD token for the next message
                         if let Some(new_vqd_header) = res.headers().get("x-vqd-4") {
                             if let Ok(new_vqd) = new_vqd_header.to_str() {
                                 let _ = sender_clone.send(format!("[VQD_UPDATE:{}]", new_vqd)).await;
@@ -492,7 +496,6 @@ fn build_ui(app: &adw::Application) {
                         while let Some(chunk_result) = stream.next().await {
                             if let Ok(bytes) = chunk_result {
                                 let text = String::from_utf8_lossy(&bytes);
-                                // Parse Server-Sent Events (SSE)
                                 for line in text.lines() {
                                     if line.starts_with("data: ") {
                                         let data = &line[6..];
