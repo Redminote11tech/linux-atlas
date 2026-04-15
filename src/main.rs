@@ -14,6 +14,7 @@ use std::env;
 use gtk::prelude::*;
 use adw::prelude::*;
 use webkit::prelude::*;
+use futures::StreamExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct AppSettings {
@@ -373,7 +374,7 @@ fn build_ui(app: &adw::Application) {
     content_manager.register_script_message_handler("atlas_bridge", None);
 
     let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+        .user_agent("Mozilla/5.0 (Wayland; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .enable_webaudio(true)
         .enable_webgl(true)
         .enable_media_stream(true)
@@ -591,21 +592,26 @@ fn build_ui(app: &adw::Application) {
     let as_clone_btn = app_settings.clone();
     let win_clone = window.clone();
     settings_btn.connect_clicked(move |_| {
-        let pref_win = adw::PreferencesWindow::builder()
+        // Use an adw::Window instead of PreferencesWindow to have explicit control over buttons
+        let pref_win = adw::Window::builder()
             .title("Atlas AI Configuration")
             .default_width(450)
-            .default_height(350)
+            .default_height(450)
             .modal(true)
             .transient_for(&win_clone)
             .build();
             
+        let toolbar_view = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let header = adw::HeaderBar::new();
+        toolbar_view.append(&header);
+            
         let page = adw::PreferencesPage::new();
         let group = adw::PreferencesGroup::new();
-        group.set_title("Provider & Model");
+        group.set_title("Provider & Model Configuration");
         
         let provider_row = adw::ComboRow::builder().title("Provider").build();
-        let model_list = gtk::StringList::new(&["Nvidia", "Gemini", "OpenAI"]);
-        provider_row.set_model(Some(&model_list));
+        let provider_list = gtk::StringList::new(&["Nvidia", "Gemini", "OpenAI"]);
+        provider_row.set_model(Some(&provider_list));
         
         let current_prov = as_clone_btn.borrow().provider.clone();
         let idx = match current_prov.as_str() {
@@ -613,62 +619,94 @@ fn build_ui(app: &adw::Application) {
             "OpenAI" => 2,
             _ => 0,
         };
+        
+        let model_row = adw::ComboRow::builder().title("Model").build();
+        
+        // Initial setup for the model list based on the currently saved provider
+        let models_nvidia = ["meta/llama-3.1-405b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct"];
+        let models_gemini = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"];
+        let models_openai = ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"];
+        
+        let initial_list = match current_prov.as_str() {
+            "Gemini" => gtk::StringList::new(&models_gemini),
+            "OpenAI" => gtk::StringList::new(&models_openai),
+            _ => gtk::StringList::new(&models_nvidia),
+        };
+        model_row.set_model(Some(&initial_list));
+        
+        // Attempt to select the currently saved model
+        let current_mod = as_clone_btn.borrow().model.clone();
+        let current_array = match current_prov.as_str() {
+            "Gemini" => models_gemini.to_vec(),
+            "OpenAI" => models_openai.to_vec(),
+            _ => models_nvidia.to_vec(),
+        };
+        if let Some(m_idx) = current_array.iter().position(|&x| x == current_mod) {
+            model_row.set_selected(m_idx as u32);
+        }
+        
+        // We set the provider selected index last, so the UI updates
         provider_row.set_selected(idx);
         
-        // Use an ActionRow containing a text entry for the model string
-        let model_row = adw::ActionRow::builder()
-            .title("Model ID")
-            .build();
-        let model_entry = gtk::Entry::builder()
-            .text(&as_clone_btn.borrow().model)
-            .valign(gtk::Align::Center)
-            .hexpand(true)
-            .build();
-        model_row.add_suffix(&model_entry);
-            
         let key_row = adw::ActionRow::builder()
             .title("API Key")
             .build();
-        let key_entry = gtk::PasswordEntry::builder()
-            .text(&as_clone_btn.borrow().api_key)
-            .valign(gtk::Align::Center)
-            .hexpand(true)
-            .show_peek_icon(true)
-            .build();
-        key_row.add_suffix(&key_entry);
+        let key_entry = gtk::PasswordEntry::builder().text(&as_clone_btn.borrow().api_key).show_peek_icon(true).hexpand(true).valign(gtk::Align::Center).build(); key_row.add_suffix(&key_entry);
             
         group.add(&provider_row);
         group.add(&model_row);
         group.add(&key_row);
         page.add(&group);
-        pref_win.add(&page);
         
-        let mr_update = model_entry.clone();
+        let apply_btn = gtk::Button::builder()
+            .label("Apply Settings")
+            .css_classes(["suggested-action"])
+            .margin_top(16)
+            .margin_bottom(16)
+            .margin_start(16)
+            .margin_end(16)
+            .build();
+            
+        let layout_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        layout_box.append(&page);
+        layout_box.append(&apply_btn);
+        
+        //toolbar_view.set_content(Some(&layout_box));
+        pref_win.set_content(Some(&toolbar_view));
+        
+        // Update model dropdown when provider changes
+        let mr_update = model_row.clone();
         provider_row.connect_selected_notify(move |row| {
-            match row.selected() {
-                0 => mr_update.set_text("meta/llama-3.1-405b-instruct"),
-                1 => mr_update.set_text("gemini-1.5-pro"),
-                2 => mr_update.set_text("gpt-4o"),
-                _ => {}
-            }
+            let list = match row.selected() {
+                1 => gtk::StringList::new(&["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]),
+                2 => gtk::StringList::new(&["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"]),
+                _ => gtk::StringList::new(&["meta/llama-3.1-405b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct"]),
+            };
+            mr_update.set_model(Some(&list));
         });
         
-        let as_close = as_clone_btn.clone();
-        let pr_close = provider_row.clone();
-        let mr_close = model_entry.clone();
-        let kr_close = key_entry.clone();
+        let as_save = as_clone_btn.clone();
+        let pr_save = provider_row.clone();
+        let mr_save = model_row.clone();
+        let kr_save = key_entry.clone();
+        let pw_save = pref_win.clone();
         
-        pref_win.connect_close_request(move |_| {
-            let mut s = as_close.borrow_mut();
-            s.provider = match pr_close.selected() {
+        apply_btn.connect_clicked(move |_| {
+            let mut s = as_save.borrow_mut();
+            s.provider = match pr_save.selected() {
                 1 => "Gemini".to_string(),
                 2 => "OpenAI".to_string(),
                 _ => "Nvidia".to_string(),
             };
-            s.model = mr_close.text().to_string();
-            s.api_key = kr_close.text().to_string();
+            
+            if let Some(item) = mr_save.selected_item() {
+                if let Ok(string_obj) = item.downcast::<gtk::StringObject>() {
+                    s.model = string_obj.string().to_string();
+                }
+            }
+            s.api_key = kr_save.text().to_string();
             save_settings(&s);
-            gtk::glib::Propagation::Proceed
+            pw_save.destroy();
         });
         
         pref_win.present();
@@ -749,11 +787,15 @@ fn build_ui(app: &adw::Application) {
         let (sender, receiver) = async_channel::unbounded::<String>();
         let ai_label_clone = ai_label.clone();
         let tv_agent_clone2 = tv_agent_clone.clone();
+        let chs_clone = chat_history_scroll.clone();
         
         gtk::glib::spawn_future_local(async move {
             while let Ok(chunk) = receiver.recv().await {
-                if chunk == "[ERROR]" {
-                     ai_label_clone.set_label("Failed to reach API. Check your settings and API Key.");
+                if chunk.starts_with("[ERROR") {
+                     ai_label_clone.set_label(&format!("API Error: {}", chunk));
+                     break;
+                }
+                if chunk == "[DONE]" {
                      break;
                 }
                 
@@ -839,6 +881,10 @@ fn build_ui(app: &adw::Application) {
                     current_text + &chunk
                 };
                 ai_label_clone.set_label(&new_text);
+                
+                // Auto-scroll while generating stream
+                let adj2 = chs_clone.vadjustment();
+                adj2.set_value(adj2.upper());
             }
         });
 
@@ -850,6 +896,7 @@ fn build_ui(app: &adw::Application) {
             rt.block_on(async {
                 if curr_settings.api_key.is_empty() {
                     let _ = sender_clone.send("Please configure your API key in Settings (⚙️).".to_string()).await;
+                    let _ = sender_clone.send("[DONE]".to_string()).await;
                     return;
                 }
 
@@ -858,7 +905,6 @@ fn build_ui(app: &adw::Application) {
                 if curr_settings.provider == "Nvidia" {
                     config = config.with_api_base("https://integrate.api.nvidia.com/v1");
                 } else if curr_settings.provider == "Gemini" {
-                    // Google's official OpenAI compatible endpoint
                     config = config.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");
                 }
 
@@ -898,17 +944,26 @@ fn build_ui(app: &adw::Application) {
                     .build()
                     .unwrap();
 
-                match client.chat().create(request).await {
-                    Ok(response) => {
-                        if let Some(choice) = response.choices.first() {
-                            if let Some(content) = &choice.message.content {
-                                 let _ = sender_clone.send(content.to_string()).await;
+                match client.chat().create_stream(request).await {
+                    Ok(mut stream) => {
+                        while let Some(response) = stream.next().await {
+                            match response {
+                                Ok(resp) => {
+                                    for choice in resp.choices {
+                                        if let Some(content) = choice.delta.content {
+                                            let _ = sender_clone.send(content).await;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = sender_clone.send(format!("[ERROR_STREAM] {:?}", e)).await;
+                                }
                             }
                         }
+                        let _ = sender_clone.send("[DONE]".to_string()).await;
                     },
                     Err(e) => {
-                        println!("API Error: {:?}", e);
-                        let _ = sender_clone.send("[ERROR]".to_string()).await;
+                        let _ = sender_clone.send(format!("[ERROR] {:?}", e)).await;
                     }
                 }
             });
