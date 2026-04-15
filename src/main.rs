@@ -16,6 +16,44 @@ use adw::prelude::*;
 use webkit::prelude::*;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+struct AppSettings {
+    provider: String,
+    model: String,
+    api_key: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            provider: "Nvidia".to_string(),
+            model: "meta/llama-3.1-405b-instruct".to_string(),
+            api_key: "".to_string(),
+        }
+    }
+}
+
+fn load_settings() -> AppSettings {
+    if let Ok(data) = std::fs::read_to_string("atlas_settings.json") {
+        if let Ok(settings) = serde_json::from_str(&data) {
+            return settings;
+        }
+    }
+    let mut default = AppSettings::default();
+    if let Ok(env_key) = env::var("NVIDIA_API_KEY") {
+        if !env_key.starts_with("nvapi-XXXX") {
+            default.api_key = env_key;
+        }
+    }
+    default
+}
+
+fn save_settings(settings: &AppSettings) {
+    if let Ok(data) = serde_json::to_string_pretty(settings) {
+        let _ = std::fs::write("atlas_settings.json", data);
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct PageContext {
     url: String,
     title: String,
@@ -128,8 +166,6 @@ const NATIVE_HOMEPAGE: &str = r#"
 async fn main() {
     dotenv::dotenv().ok();
     
-    // Disable TLS 1.3 completely as a last resort workaround for the GnuTLS bug on Fedora 43
-    // This forces all connections to fall back to TLS 1.2, which is stable.
     unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:-VERS-TLS1.3"); }
     
     let app = adw::Application::builder()
@@ -188,24 +224,27 @@ fn create_tab(
     let tv_clone = tab_view.clone();
     let ue_clone = url_entry.clone();
     web_view.connect_uri_notify(move |wv| {
-        if let Some(page) = tv_clone.selected_page()
-            && let Ok(child_wv) = page.child().downcast::<webkit::WebView>()
-                && child_wv == *wv
-                    && let Some(uri) = wv.uri() {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
+                if child_wv == *wv {
+                    if let Some(uri) = wv.uri() {
                         if uri == "atlas://home" || uri == "atlas://home/" {
                             ue_clone.set_text("");
                         } else {
                             ue_clone.set_text(&uri);
                         }
                     }
+                }
+            }
+        }
     });
 
     let tv_clone2 = tab_view.clone();
     web_view.connect_title_notify(move |wv| {
         for i in 0..tv_clone2.n_pages() {
             let page = tv_clone2.nth_page(i);
-            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>()
-                && child_wv == *wv {
+            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
+                if child_wv == *wv {
                     if let Some(title) = wv.title() {
                         if title.is_empty() {
                             page.set_title("New Tab");
@@ -215,16 +254,17 @@ fn create_tab(
                     }
                     break;
                 }
+            }
         }
     });
 
     let ah_clone = accepted_http.clone();
     web_view.connect_decide_policy(move |wv, decision, decision_type| {
-        if decision_type == webkit::PolicyDecisionType::NavigationAction
-            && let Some(nav_decision) = decision.downcast_ref::<webkit::NavigationPolicyDecision>()
-                && let Some(action) = nav_decision.navigation_action()
-                    && let Some(request) = action.request()
-                        && let Some(uri) = request.uri() {
+        if decision_type == webkit::PolicyDecisionType::NavigationAction {
+            if let Some(nav_decision) = decision.downcast_ref::<webkit::NavigationPolicyDecision>() {
+                if let Some(action) = nav_decision.navigation_action() {
+                    if let Some(request) = action.request() {
+                        if let Some(uri) = request.uri() {
                             let uri_str = uri.as_str();
                             if uri_str.starts_with("http://") && !uri_str.starts_with("http://localhost") && !uri_str.starts_with("http://127.0.0.1") {
                                 let domain = uri_str.split('/').nth(2).unwrap_or("").to_string();
@@ -260,20 +300,19 @@ fn create_tab(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
         false
     });
 
-    // Handle generic load errors to mask the annoying "Close Notify" TLS bug on Fedora
-    web_view.connect_load_failed(|_, _load_event, uri, error| {
+    web_view.connect_load_failed(|_, _load_event, _uri, error| {
         let err_msg = error.message();
-        // If it's the known GnuTLS "close notify" fatal alert bug on Fedora 43, we silently ignore it 
-        // to prevent a crash/error page, as the connection technically succeeded and is just closing.
         if err_msg.contains("peer sent fatal tls alert") || err_msg.contains("close notify") {
-            println!("Intercepted and ignored harmless GnuTLS close_notify bug for URI: {}", uri);
-            return true; // We handled it, don't show the error page
+            return true;
         }
-        println!("Load failed for URI {}: {:?}", uri, error);
-        false // Let WebKit show its default error page for other real errors
+        false 
     });
 
     let page = tab_view.append(&web_view);
@@ -290,6 +329,8 @@ fn build_ui(app: &adw::Application) {
         .default_width(1200)
         .default_height(800)
         .build();
+
+    let app_settings = Rc::new(RefCell::new(load_settings()));
 
     let split_view = adw::Flap::builder()
         .flap_position(gtk::PackType::End)
@@ -358,7 +399,6 @@ fn build_ui(app: &adw::Application) {
         move |result| {
             if let Ok(filter) = result {
                 content_manager_clone.add_filter(&filter);
-                println!("Adblock filters loaded successfully.");
             }
         }
     );
@@ -410,34 +450,38 @@ fn build_ui(app: &adw::Application) {
 
     let tv_clone = tab_view.clone();
     home_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page()
-            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
             }
+        }
     });
 
     let tv_clone = tab_view.clone();
     back_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page()
-            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.go_back();
             }
+        }
     });
 
     let tv_clone = tab_view.clone();
     fwd_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page()
-            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.go_forward();
             }
+        }
     });
 
     let tv_clone = tab_view.clone();
     reload_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page()
-            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.reload();
             }
+        }
     });
 
     let tv_clone = tab_view.clone();
@@ -451,16 +495,17 @@ fn build_ui(app: &adw::Application) {
             format!("https://google.com/search?q={}", text)
         };
         
-        if let Some(page) = tv_clone.selected_page()
-            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.load_uri(&uri);
             }
+        }
     });
 
     let ue_clone = url_entry.clone();
     tab_view.connect_selected_page_notify(move |tv| {
-        if let Some(page) = tv.selected_page()
-            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv.selected_page() {
+            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 if let Some(uri) = wv.uri() {
                     if uri == "atlas://home" || uri == "atlas://home/" {
                         ue_clone.set_text("");
@@ -471,6 +516,7 @@ fn build_ui(app: &adw::Application) {
                     ue_clone.set_text("");
                 }
             }
+        }
     });
 
     tab_view.connect_close_page(move |tv, page| {
@@ -498,6 +544,10 @@ fn build_ui(app: &adw::Application) {
     let title_label = gtk::Label::new(Some("Atlas AI Agent"));
     title_label.add_css_class("title");
     chat_header.set_title_widget(Some(&title_label));
+    
+    // Settings Button
+    let settings_btn = gtk::Button::from_icon_name("emblem-system-symbolic");
+    chat_header.pack_end(&settings_btn);
 
     let chat_history = gtk::ScrolledWindow::builder()
         .vexpand(true)
@@ -514,7 +564,7 @@ fn build_ui(app: &adw::Application) {
     let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     welcome_box.set_halign(gtk::Align::Center);
     let welcome_label = gtk::Label::builder()
-        .label("👋 Hello, I am Atlas.\n\nI run on the stable Nvidia API. Please add your key to `.env` if you haven't yet.")
+        .label("👋 Hello, I am Atlas.\n\nClick the ⚙️ icon above to select your AI Provider and Model. Then ask me to analyze a page or click buttons!")
         .wrap(true)
         .justify(gtk::Justification::Center)
         .css_classes(["dim-label"])
@@ -536,6 +586,93 @@ fn build_ui(app: &adw::Application) {
     split_view.set_content(Some(&main_content));
     split_view.set_flap(Some(&sidebar_content));
     split_view.set_reveal_flap(false);
+    
+    // --- Settings UI Dialog ---
+    let as_clone_btn = app_settings.clone();
+    let win_clone = window.clone();
+    settings_btn.connect_clicked(move |_| {
+        let pref_win = adw::PreferencesWindow::builder()
+            .title("Atlas AI Configuration")
+            .default_width(450)
+            .default_height(350)
+            .modal(true)
+            .transient_for(&win_clone)
+            .build();
+            
+        let page = adw::PreferencesPage::new();
+        let group = adw::PreferencesGroup::new();
+        group.set_title("Provider & Model");
+        
+        let provider_row = adw::ComboRow::builder().title("Provider").build();
+        let model_list = gtk::StringList::new(&["Nvidia", "Gemini", "OpenAI"]);
+        provider_row.set_model(Some(&model_list));
+        
+        let current_prov = as_clone_btn.borrow().provider.clone();
+        let idx = match current_prov.as_str() {
+            "Gemini" => 1,
+            "OpenAI" => 2,
+            _ => 0,
+        };
+        provider_row.set_selected(idx);
+        
+        // Use an ActionRow containing a text entry for the model string
+        let model_row = adw::ActionRow::builder()
+            .title("Model ID")
+            .build();
+        let model_entry = gtk::Entry::builder()
+            .text(&as_clone_btn.borrow().model)
+            .valign(gtk::Align::Center)
+            .hexpand(true)
+            .build();
+        model_row.add_suffix(&model_entry);
+            
+        let key_row = adw::ActionRow::builder()
+            .title("API Key")
+            .build();
+        let key_entry = gtk::PasswordEntry::builder()
+            .text(&as_clone_btn.borrow().api_key)
+            .valign(gtk::Align::Center)
+            .hexpand(true)
+            .show_peek_icon(true)
+            .build();
+        key_row.add_suffix(&key_entry);
+            
+        group.add(&provider_row);
+        group.add(&model_row);
+        group.add(&key_row);
+        page.add(&group);
+        pref_win.add(&page);
+        
+        let mr_update = model_entry.clone();
+        provider_row.connect_selected_notify(move |row| {
+            match row.selected() {
+                0 => mr_update.set_text("meta/llama-3.1-405b-instruct"),
+                1 => mr_update.set_text("gemini-1.5-pro"),
+                2 => mr_update.set_text("gpt-4o"),
+                _ => {}
+            }
+        });
+        
+        let as_close = as_clone_btn.clone();
+        let pr_close = provider_row.clone();
+        let mr_close = model_entry.clone();
+        let kr_close = key_entry.clone();
+        
+        pref_win.connect_close_request(move |_| {
+            let mut s = as_close.borrow_mut();
+            s.provider = match pr_close.selected() {
+                1 => "Gemini".to_string(),
+                2 => "OpenAI".to_string(),
+                _ => "Nvidia".to_string(),
+            };
+            s.model = mr_close.text().to_string();
+            s.api_key = kr_close.text().to_string();
+            save_settings(&s);
+            gtk::glib::Propagation::Proceed
+        });
+        
+        pref_win.present();
+    });
 
     let latest_context: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
     let lc_clone = latest_context.clone();
@@ -543,10 +680,11 @@ fn build_ui(app: &adw::Application) {
     content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
         if let Some(js_val) = message.to_json(0) {
             let json_str = js_val.to_string();
-            if let Ok(unquoted) = serde_json::from_str::<String>(&json_str)
-                 && let Ok(context) = serde_json::from_str::<PageContext>(&unquoted) {
+            if let Ok(unquoted) = serde_json::from_str::<String>(&json_str) {
+                 if let Ok(context) = serde_json::from_str::<PageContext>(&unquoted) {
                      *lc_clone.borrow_mut() = Some(context);
                  }
+            }
         }
     });
 
@@ -556,9 +694,9 @@ fn build_ui(app: &adw::Application) {
         let current = sv_clone.reveals_flap();
         sv_clone.set_reveal_flap(!current);
         
-        if !current
-            && let Some(page) = tv_clone.selected_page()
-                && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if !current {
+            if let Some(page) = tv_clone.selected_page() {
+                if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                     wv.evaluate_javascript(
                         "window.dispatchEvent(new Event('atlas:request_context'));",
                         None,
@@ -567,12 +705,15 @@ fn build_ui(app: &adw::Application) {
                         |_| {} 
                     );
                 }
+            }
+        }
     });
     
     let chat_box_clone = chat_box.clone();
     let latest_context_ai = latest_context.clone();
     let chat_history_scroll = chat_history.clone();
     let tv_agent_clone = tab_view.clone();
+    let app_settings_ai = app_settings.clone();
     
     chat_input.connect_activate(move |entry| {
         let user_prompt = entry.text().to_string();
@@ -612,7 +753,7 @@ fn build_ui(app: &adw::Application) {
         gtk::glib::spawn_future_local(async move {
             while let Ok(chunk) = receiver.recv().await {
                 if chunk == "[ERROR]" {
-                     ai_label_clone.set_label("Failed to reach Nvidia API. Ensure NVIDIA_API_KEY is in .env");
+                     ai_label_clone.set_label("Failed to reach API. Check your settings and API Key.");
                      break;
                 }
                 
@@ -675,8 +816,8 @@ fn build_ui(app: &adw::Application) {
                      }})();
                      "#, selector);
                      
-                     if let Some(page) = tv_agent_clone2.selected_page()
-                         && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                     if let Some(page) = tv_agent_clone2.selected_page() {
+                         if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                              wv.evaluate_javascript(
                                  &ghost_script,
                                  None,
@@ -685,6 +826,7 @@ fn build_ui(app: &adw::Application) {
                                  |_| {}
                              );
                          }
+                     }
                      
                      ai_label_clone.set_label(&format!("I clicked the element: {}", selector));
                      continue;
@@ -701,26 +843,31 @@ fn build_ui(app: &adw::Application) {
         });
 
         let sender_clone = sender.clone();
+        let curr_settings = app_settings_ai.borrow().clone();
         
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let api_key = env::var("NVIDIA_API_KEY").unwrap_or_default();
-                if api_key.is_empty() || api_key.starts_with("nvapi-XXXX") {
-                    let _ = sender_clone.send("[ERROR]".to_string()).await;
+                if curr_settings.api_key.is_empty() {
+                    let _ = sender_clone.send("Please configure your API key in Settings (⚙️).".to_string()).await;
                     return;
                 }
 
-                let config = OpenAIConfig::new()
-                    .with_api_key(api_key)
-                    .with_api_base("https://integrate.api.nvidia.com/v1");
+                let mut config = OpenAIConfig::new().with_api_key(&curr_settings.api_key);
                 
+                if curr_settings.provider == "Nvidia" {
+                    config = config.with_api_base("https://integrate.api.nvidia.com/v1");
+                } else if curr_settings.provider == "Gemini" {
+                    // Google's official OpenAI compatible endpoint
+                    config = config.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");
+                }
+
                 let client = Client::with_config(config);
                 
                 let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
                 system_prompt.push_str("If the user asks you to click a button or a link, respond ONLY with the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
-                if let Some(ctx) = context_opt
-                    && !ctx.url.starts_with("atlas://") {
+                if let Some(ctx) = context_opt {
+                    if !ctx.url.starts_with("atlas://") {
                         system_prompt.push_str(&format!(
                             "The user is viewing the website '{}' at {}. ",
                             ctx.title, ctx.url
@@ -736,9 +883,10 @@ fn build_ui(app: &adw::Application) {
                             ctx.main_content
                         ));
                     }
+                }
                 
                 let request = CreateChatCompletionRequestArgs::default()
-                    .model("meta/llama-3.1-405b-instruct")
+                    .model(&curr_settings.model)
                     .messages([
                         ChatCompletionRequestSystemMessageArgs::default()
                             .content(system_prompt)
@@ -752,10 +900,11 @@ fn build_ui(app: &adw::Application) {
 
                 match client.chat().create(request).await {
                     Ok(response) => {
-                        if let Some(choice) = response.choices.first()
-                            && let Some(content) = &choice.message.content {
+                        if let Some(choice) = response.choices.first() {
+                            if let Some(content) = &choice.message.content {
                                  let _ = sender_clone.send(content.to_string()).await;
                             }
+                        }
                     },
                     Err(e) => {
                         println!("API Error: {:?}", e);
