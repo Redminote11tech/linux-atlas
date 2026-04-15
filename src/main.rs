@@ -160,6 +160,9 @@ async fn main() {
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
+        
+        //let web_context = webkit::WebContext::default().unwrap();
+        //web_context.set_tls_errors_policy(webkit::TLSErrorsPolicy::Ignore); // Useful for some dev environments, but generally risky for daily driver
     });
 
     app.connect_activate(build_ui);
@@ -323,7 +326,10 @@ fn build_ui(app: &adw::Application) {
     content_manager.register_script_message_handler("atlas_bridge", None);
 
     let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (Wayland; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+        .enable_webaudio(true)
+        .enable_webgl(true)
+        .enable_media_stream(true)
         .enable_developer_extras(true)
         .build();
 
@@ -383,6 +389,12 @@ fn build_ui(app: &adw::Application) {
 
     // Create the initial tab
     let wv_initial = create_tab(&tab_view, &content_manager, &settings, accepted_http.clone(), url_entry.clone());
+    //let web_context = webkit::WebContext::default().unwrap();
+    
+    // Website data manager (Cookies, LocalStorage) to help persist ReCAPTCHA "human" tokens
+    //let data_manager = web_context.website_data_manager().unwrap();
+    //data_manager.set_itp_enabled(false); // Disable Intelligent Tracking Prevention (often breaks ReCAPTCHA)
+    
     wv_initial.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
 
     let tv_clone = tab_view.clone();
@@ -466,7 +478,6 @@ fn build_ui(app: &adw::Application) {
         }
     });
 
-    // Close tabs logic
     tab_view.connect_close_page(move |tv, page| {
         tv.close_page_finish(page, true);
         true.into()
@@ -533,7 +544,7 @@ fn build_ui(app: &adw::Application) {
 
     let latest_context: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
     let lc_clone = latest_context.clone();
-    
+
     content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
         if let Some(js_val) = message.to_json(0) {
             let json_str = js_val.to_string();
