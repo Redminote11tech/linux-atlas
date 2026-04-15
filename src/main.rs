@@ -128,6 +128,9 @@ const NATIVE_HOMEPAGE: &str = r#"
 async fn main() {
     dotenv::dotenv().ok();
     
+    // Disable ECH inside the Rust application directly so the user doesn't have to export ENV vars
+    unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "NORMAL:-ECH"); }
+    
     let app = adw::Application::builder()
         .application_id("com.github.linux_atlas")
         .build();
@@ -326,7 +329,7 @@ fn build_ui(app: &adw::Application) {
     content_manager.register_script_message_handler("atlas_bridge", None);
 
     let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+        .user_agent("Mozilla/5.0 (Wayland; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .enable_webaudio(true)
         .enable_webgl(true)
         .enable_media_stream(true)
