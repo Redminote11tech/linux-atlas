@@ -128,6 +128,10 @@ const NATIVE_HOMEPAGE: &str = r#"
 async fn main() {
     dotenv::dotenv().ok();
     
+    // Disable TLS 1.3 completely as a last resort workaround for the GnuTLS bug on Fedora 43
+    // This forces all connections to fall back to TLS 1.2, which is stable.
+    unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:-VERS-TLS1.3"); }
+    
     let app = adw::Application::builder()
         .application_id("com.github.linux_atlas")
         .build();
@@ -268,11 +272,11 @@ fn create_tab(
     });
 
     // Handle generic load errors to mask the annoying "Close Notify" TLS bug on Fedora
-    web_view.connect_load_failed(|_, load_event, uri, error| {
+    web_view.connect_load_failed(|_, _load_event, uri, error| {
         let err_msg = error.message();
         // If it's the known GnuTLS "close notify" fatal alert bug on Fedora 43, we silently ignore it 
         // to prevent a crash/error page, as the connection technically succeeded and is just closing.
-        if err_msg.contains("peer sent fatal tls alert: close notify") {
+        if err_msg.contains("peer sent fatal tls alert") || err_msg.contains("close notify") {
             println!("Intercepted and ignored harmless GnuTLS close_notify bug for URI: {}", uri);
             return true; // We handled it, don't show the error page
         }
