@@ -129,7 +129,7 @@ async fn main() {
     dotenv::dotenv().ok();
     
     // Disable ECH inside the Rust application directly so the user doesn't have to export ENV vars
-    unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "NORMAL:-ECH"); }
+    unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:%NO_ECH"); }
     
     let app = adw::Application::builder()
         .application_id("com.github.linux_atlas")
