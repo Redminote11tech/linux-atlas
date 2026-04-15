@@ -4,7 +4,7 @@ use webkit6 as webkit;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 use std::cell::RefCell;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CONTENT_TYPE, ACCEPT};
+use reqwest::header::{USER_AGENT, CONTENT_TYPE, ACCEPT};
 use futures::StreamExt;
 
 use gtk::prelude::*;
@@ -35,6 +35,108 @@ struct DuckDuckGoRequest {
 struct DuckDuckGoResponse {
     message: Option<String>,
 }
+
+const NATIVE_HOMEPAGE: &str = r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Linux Atlas</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #242424;
+            color: #ffffff;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .container {
+            text-align: center;
+            animation: fadein 1s ease-in;
+        }
+        @keyframes fadein {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            background: linear-gradient(90deg, #76B900, #3584e4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        p {
+            font-size: 1.1rem;
+            color: #a0a0a0;
+            margin-bottom: 32px;
+        }
+        .search-box {
+            display: flex;
+            width: 100%;
+            max-width: 600px;
+            background: #303030;
+            border-radius: 24px;
+            padding: 4px 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            border: 1px solid #404040;
+            transition: border-color 0.2s;
+        }
+        .search-box:focus-within {
+            border-color: #76B900;
+        }
+        input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            padding: 12px 16px;
+            font-size: 1.1rem;
+            color: white;
+            outline: none;
+        }
+        input::placeholder {
+            color: #808080;
+        }
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🐧</div>
+        <h1>Linux Atlas</h1>
+        <p>What do you want to search?</p>
+        <form class="search-box" id="search-form">
+            <input type="text" id="search-input" placeholder="Search the web or enter a URL..." autofocus autocomplete="off">
+        </form>
+    </div>
+    <script>
+        document.getElementById('search-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            let query = document.getElementById('search-input').value.trim();
+            if (!query) return;
+            
+            let uri = query;
+            if (query.startsWith('http://') || query.startsWith('https://')) {
+                // already a URL
+            } else if (query.includes('.') && !query.includes(' ')) {
+                uri = 'https://' + query;
+            } else {
+                uri = 'https://google.com/search?q=' + encodeURIComponent(query);
+            }
+            window.location.href = uri;
+        });
+    </script>
+</body>
+</html>
+"#;
 
 #[tokio::main]
 async fn main() {
@@ -125,11 +227,40 @@ fn build_ui(app: &adw::Application) {
     content_manager.add_script(&extraction_script);
     content_manager.register_script_message_handler("atlas_bridge", None);
 
-    // Spoof a modern Chrome user agent so websites don't give us broken mobile/legacy pages
     let settings = webkit::Settings::builder()
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .enable_developer_extras(true)
         .build();
+
+    // Built-in Adblock (WebExtensions)
+    // We use WebKit's native content filtering to block common ad domains without needing Chromium extensions.
+    let filter_path_str = std::env::temp_dir().to_string_lossy().to_string();
+    let filter_manager = webkit::UserContentFilterStore::new(&filter_path_str);
+    let filter_json = r#"
+    [
+        {"trigger": {"url-filter": ".*(?:doubleclick\\.net|googleadservices\\.com|ads\\.youtube\\.com).*"}, "action": {"type": "block"}},
+        {"trigger": {"url-filter": ".*(?:amazon-adsystem\\.com|adnxs\\.com|taboola\\.com).*"}, "action": {"type": "block"}}
+    ]
+    "#;
+    
+    // Save filter to a temporary file
+    let filter_path = std::env::temp_dir().join("atlas_adblock.json");
+    std::fs::write(&filter_path, filter_json).unwrap();
+    
+    let content_manager_clone = content_manager.clone();
+    filter_manager.save_from_file(
+        "adblock",
+        &gtk::gio::File::for_path(&filter_path),
+        None::<&gtk::gio::Cancellable>,
+        move |result| {
+            if let Ok(filter) = result {
+                content_manager_clone.add_filter(&filter);
+                println!("Adblock filters loaded successfully.");
+            } else {
+                println!("Failed to load adblock filters.");
+            }
+        }
+    );
 
     let web_view = webkit::WebView::builder()
         .user_content_manager(&content_manager)
@@ -137,25 +268,33 @@ fn build_ui(app: &adw::Application) {
         .hexpand(true)
         .vexpand(true)
         .build();
-    web_view.load_uri("https://google.com");
+        
+    web_view.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
 
     let header_bar = adw::HeaderBar::new();
     let url_entry = gtk::Entry::builder()
-        .placeholder_text("Search Google or enter address")
+        .placeholder_text("Search or enter address")
         .hexpand(true)
         .max_width_chars(50)
         .build();
 
+    let home_btn = gtk::Button::from_icon_name("go-home-symbolic");
     let back_btn = gtk::Button::from_icon_name("go-previous-symbolic");
     let fwd_btn = gtk::Button::from_icon_name("go-next-symbolic");
     let reload_btn = gtk::Button::from_icon_name("view-refresh-symbolic");
     let toggle_ai_btn = gtk::Button::from_icon_name("view-sidebar-symbolic");
 
+    header_bar.pack_start(&home_btn);
     header_bar.pack_start(&back_btn);
     header_bar.pack_start(&fwd_btn);
     header_bar.pack_start(&reload_btn);
     header_bar.set_title_widget(Some(&url_entry));
     header_bar.pack_end(&toggle_ai_btn);
+
+    let wv_clone = web_view.clone();
+    home_btn.connect_clicked(move |_| {
+        wv_clone.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
+    });
 
     let wv_clone = web_view.clone();
     back_btn.connect_clicked(move |_| wv_clone.go_back());
@@ -170,9 +309,9 @@ fn build_ui(app: &adw::Application) {
         let uri = if text.starts_with("http://") || text.starts_with("https://") {
             text
         } else if text.contains('.') && !text.contains(' ') {
-            format!("https://{}", text) // e.g. typing "reddit.com" goes straight to site
+            format!("https://{}", text)
         } else {
-            format!("https://google.com/search?q={}", text) // Standard search
+            format!("https://google.com/search?q={}", text)
         };
         wv_clone.load_uri(&uri);
     });
@@ -184,7 +323,11 @@ fn build_ui(app: &adw::Application) {
     let url_entry_clone = url_entry.clone();
     web_view.connect_uri_notify(move |wv: &webkit::WebView| {
         if let Some(uri) = wv.uri() {
-            url_entry_clone.set_text(&uri);
+            if uri == "atlas://home" || uri == "atlas://home/" {
+                url_entry_clone.set_text("");
+            } else {
+                url_entry_clone.set_text(&uri);
+            }
         }
     });
 
@@ -219,7 +362,7 @@ fn build_ui(app: &adw::Application) {
     let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     welcome_box.set_halign(gtk::Align::Center);
     let welcome_label = gtk::Label::builder()
-        .label("👋 Hello, I am Atlas (Powered by Duck.ai).\n\nNo API Key required! I use DuckDuckGo's internal AI endpoints. I can see the pages you visit and execute clicks!")
+        .label("👋 Hello, I am Atlas.\n\nNo API Key required! I use DuckDuckGo's internal AI endpoints. I can see the pages you visit and execute clicks!")
         .wrap(true)
         .justify(gtk::Justification::Center)
         .css_classes(["dim-label"])
@@ -321,7 +464,7 @@ fn build_ui(app: &adw::Application) {
         gtk::glib::spawn_future_local(async move {
             while let Ok(chunk) = receiver.recv().await {
                 if chunk == "[ERROR_STATUS]" {
-                     ai_label_clone.set_label("Duck.ai rejected the VQD request. Try again later.");
+                     ai_label_clone.set_label("Duck.ai rejected the VQD request. Try again later or use Nvidia API.");
                      break;
                 }
                 if chunk == "[ERROR_STREAM]" {
@@ -428,7 +571,7 @@ fn build_ui(app: &adw::Application) {
                 if vqd.is_empty() {
                     let status_res = client.get("https://duckduckgo.com/duckchat/v1/status")
                         .header("x-vqd-accept", "1")
-                        .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                        .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                         .send()
                         .await;
                         
@@ -447,20 +590,22 @@ fn build_ui(app: &adw::Application) {
                 let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
                 system_prompt.push_str("If the user asks you to click a button or a link, respond ONLY with the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
                 if let Some(ctx) = context_opt {
-                    system_prompt.push_str(&format!(
-                        "The user is viewing the website '{}' at {}. ",
-                        ctx.title, ctx.url
-                    ));
-                    if !ctx.highlighted_text.is_empty() {
-                         system_prompt.push_str(&format!(
-                             "The user highlighted this text: '{}'. Focus your answer on this. ",
-                             ctx.highlighted_text
-                         ));
+                    if !ctx.url.starts_with("atlas://") {
+                        system_prompt.push_str(&format!(
+                            "The user is viewing the website '{}' at {}. ",
+                            ctx.title, ctx.url
+                        ));
+                        if !ctx.highlighted_text.is_empty() {
+                             system_prompt.push_str(&format!(
+                                 "The user highlighted this text: '{}'. Focus your answer on this. ",
+                                 ctx.highlighted_text
+                             ));
+                        }
+                        system_prompt.push_str(&format!(
+                            "\nHere is the page content:\n{}",
+                            ctx.main_content
+                        ));
                     }
-                    system_prompt.push_str(&format!(
-                        "\nHere is the page content:\n{}",
-                        ctx.main_content
-                    ));
                 }
                 
                 let messages = vec![
@@ -479,7 +624,7 @@ fn build_ui(app: &adw::Application) {
                     .header("x-vqd-4", &vqd)
                     .header(CONTENT_TYPE, "application/json")
                     .header(ACCEPT, "text/event-stream")
-                    .header(USER_AGENT, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                     .json(&request_body)
                     .send()
                     .await;
