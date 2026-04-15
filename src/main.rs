@@ -188,27 +188,24 @@ fn create_tab(
     let tv_clone = tab_view.clone();
     let ue_clone = url_entry.clone();
     web_view.connect_uri_notify(move |wv| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
-                if child_wv == *wv {
-                    if let Some(uri) = wv.uri() {
+        if let Some(page) = tv_clone.selected_page()
+            && let Ok(child_wv) = page.child().downcast::<webkit::WebView>()
+                && child_wv == *wv
+                    && let Some(uri) = wv.uri() {
                         if uri == "atlas://home" || uri == "atlas://home/" {
                             ue_clone.set_text("");
                         } else {
                             ue_clone.set_text(&uri);
                         }
                     }
-                }
-            }
-        }
     });
 
     let tv_clone2 = tab_view.clone();
     web_view.connect_title_notify(move |wv| {
         for i in 0..tv_clone2.n_pages() {
             let page = tv_clone2.nth_page(i);
-            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
-                if child_wv == *wv {
+            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>()
+                && child_wv == *wv {
                     if let Some(title) = wv.title() {
                         if title.is_empty() {
                             page.set_title("New Tab");
@@ -218,17 +215,16 @@ fn create_tab(
                     }
                     break;
                 }
-            }
         }
     });
 
     let ah_clone = accepted_http.clone();
     web_view.connect_decide_policy(move |wv, decision, decision_type| {
-        if decision_type == webkit::PolicyDecisionType::NavigationAction {
-            if let Some(nav_decision) = decision.downcast_ref::<webkit::NavigationPolicyDecision>() {
-                if let Some(action) = nav_decision.navigation_action() {
-                    if let Some(request) = action.request() {
-                        if let Some(uri) = request.uri() {
+        if decision_type == webkit::PolicyDecisionType::NavigationAction
+            && let Some(nav_decision) = decision.downcast_ref::<webkit::NavigationPolicyDecision>()
+                && let Some(action) = nav_decision.navigation_action()
+                    && let Some(request) = action.request()
+                        && let Some(uri) = request.uri() {
                             let uri_str = uri.as_str();
                             if uri_str.starts_with("http://") && !uri_str.starts_with("http://localhost") && !uri_str.starts_with("http://127.0.0.1") {
                                 let domain = uri_str.split('/').nth(2).unwrap_or("").to_string();
@@ -264,10 +260,6 @@ fn create_tab(
                                 }
                             }
                         }
-                    }
-                }
-            }
-        }
         false
     });
 
@@ -418,38 +410,34 @@ fn build_ui(app: &adw::Application) {
 
     let tv_clone = tab_view.clone();
     home_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page()
+            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
             }
-        }
     });
 
     let tv_clone = tab_view.clone();
     back_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page()
+            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.go_back();
             }
-        }
     });
 
     let tv_clone = tab_view.clone();
     fwd_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page()
+            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.go_forward();
             }
-        }
     });
 
     let tv_clone = tab_view.clone();
     reload_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page()
+            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.reload();
             }
-        }
     });
 
     let tv_clone = tab_view.clone();
@@ -463,17 +451,16 @@ fn build_ui(app: &adw::Application) {
             format!("https://google.com/search?q={}", text)
         };
         
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv_clone.selected_page()
+            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 wv.load_uri(&uri);
             }
-        }
     });
 
     let ue_clone = url_entry.clone();
     tab_view.connect_selected_page_notify(move |tv| {
-        if let Some(page) = tv.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if let Some(page) = tv.selected_page()
+            && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                 if let Some(uri) = wv.uri() {
                     if uri == "atlas://home" || uri == "atlas://home/" {
                         ue_clone.set_text("");
@@ -484,7 +471,6 @@ fn build_ui(app: &adw::Application) {
                     ue_clone.set_text("");
                 }
             }
-        }
     });
 
     tab_view.connect_close_page(move |tv, page| {
@@ -557,11 +543,10 @@ fn build_ui(app: &adw::Application) {
     content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
         if let Some(js_val) = message.to_json(0) {
             let json_str = js_val.to_string();
-            if let Ok(unquoted) = serde_json::from_str::<String>(&json_str) {
-                 if let Ok(context) = serde_json::from_str::<PageContext>(&unquoted) {
+            if let Ok(unquoted) = serde_json::from_str::<String>(&json_str)
+                 && let Ok(context) = serde_json::from_str::<PageContext>(&unquoted) {
                      *lc_clone.borrow_mut() = Some(context);
                  }
-            }
         }
     });
 
@@ -571,9 +556,9 @@ fn build_ui(app: &adw::Application) {
         let current = sv_clone.reveals_flap();
         sv_clone.set_reveal_flap(!current);
         
-        if !current {
-            if let Some(page) = tv_clone.selected_page() {
-                if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+        if !current
+            && let Some(page) = tv_clone.selected_page()
+                && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                     wv.evaluate_javascript(
                         "window.dispatchEvent(new Event('atlas:request_context'));",
                         None,
@@ -582,8 +567,6 @@ fn build_ui(app: &adw::Application) {
                         |_| {} 
                     );
                 }
-            }
-        }
     });
     
     let chat_box_clone = chat_box.clone();
@@ -692,8 +675,8 @@ fn build_ui(app: &adw::Application) {
                      }})();
                      "#, selector);
                      
-                     if let Some(page) = tv_agent_clone2.selected_page() {
-                         if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                     if let Some(page) = tv_agent_clone2.selected_page()
+                         && let Ok(wv) = page.child().downcast::<webkit::WebView>() {
                              wv.evaluate_javascript(
                                  &ghost_script,
                                  None,
@@ -702,7 +685,6 @@ fn build_ui(app: &adw::Application) {
                                  |_| {}
                              );
                          }
-                     }
                      
                      ai_label_clone.set_label(&format!("I clicked the element: {}", selector));
                      continue;
@@ -737,8 +719,8 @@ fn build_ui(app: &adw::Application) {
                 
                 let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
                 system_prompt.push_str("If the user asks you to click a button or a link, respond ONLY with the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
-                if let Some(ctx) = context_opt {
-                    if !ctx.url.starts_with("atlas://") {
+                if let Some(ctx) = context_opt
+                    && !ctx.url.starts_with("atlas://") {
                         system_prompt.push_str(&format!(
                             "The user is viewing the website '{}' at {}. ",
                             ctx.title, ctx.url
@@ -754,7 +736,6 @@ fn build_ui(app: &adw::Application) {
                             ctx.main_content
                         ));
                     }
-                }
                 
                 let request = CreateChatCompletionRequestArgs::default()
                     .model("meta/llama-3.1-405b-instruct")
@@ -771,11 +752,10 @@ fn build_ui(app: &adw::Application) {
 
                 match client.chat().create(request).await {
                     Ok(response) => {
-                        if let Some(choice) = response.choices.first() {
-                            if let Some(content) = &choice.message.content {
+                        if let Some(choice) = response.choices.first()
+                            && let Some(content) = &choice.message.content {
                                  let _ = sender_clone.send(content.to_string()).await;
                             }
-                        }
                     },
                     Err(e) => {
                         println!("API Error: {:?}", e);
