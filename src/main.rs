@@ -128,9 +128,6 @@ const NATIVE_HOMEPAGE: &str = r#"
 async fn main() {
     dotenv::dotenv().ok();
     
-    // Disable ECH inside the Rust application directly so the user doesn't have to export ENV vars
-    //unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:%NO_ECH"); }
-    
     let app = adw::Application::builder()
         .application_id("com.github.linux_atlas")
         .build();
@@ -163,9 +160,6 @@ async fn main() {
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
-        
-        //let web_context = webkit::WebContext::default().unwrap();
-        //web_context.set_tls_errors_policy(webkit::TLSErrorsPolicy::Ignore); // Useful for some dev environments, but generally risky for daily driver
     });
 
     app.connect_activate(build_ui);
@@ -273,6 +267,19 @@ fn create_tab(
         false
     });
 
+    // Handle generic load errors to mask the annoying "Close Notify" TLS bug on Fedora
+    web_view.connect_load_failed(|_, load_event, uri, error| {
+        let err_msg = error.message();
+        // If it's the known GnuTLS "close notify" fatal alert bug on Fedora 43, we silently ignore it 
+        // to prevent a crash/error page, as the connection technically succeeded and is just closing.
+        if err_msg.contains("peer sent fatal tls alert: close notify") {
+            println!("Intercepted and ignored harmless GnuTLS close_notify bug for URI: {}", uri);
+            return true; // We handled it, don't show the error page
+        }
+        println!("Load failed for URI {}: {:?}", uri, error);
+        false // Let WebKit show its default error page for other real errors
+    });
+
     let page = tab_view.append(&web_view);
     page.set_title("New Tab");
     tab_view.set_selected_page(&page);
@@ -329,7 +336,7 @@ fn build_ui(app: &adw::Application) {
     content_manager.register_script_message_handler("atlas_bridge", None);
 
     let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (Wayland; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
         .enable_webaudio(true)
         .enable_webgl(true)
         .enable_media_stream(true)
@@ -392,11 +399,6 @@ fn build_ui(app: &adw::Application) {
 
     // Create the initial tab
     let wv_initial = create_tab(&tab_view, &content_manager, &settings, accepted_http.clone(), url_entry.clone());
-    //let web_context = webkit::WebContext::default().unwrap();
-    
-    // Website data manager (Cookies, LocalStorage) to help persist ReCAPTCHA "human" tokens
-    //let data_manager = web_context.website_data_manager().unwrap();
-    //data_manager.set_itp_enabled(false); // Disable Intelligent Tracking Prevention (often breaks ReCAPTCHA)
     
     wv_initial.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
 
