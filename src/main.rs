@@ -21,6 +21,7 @@ struct AppSettings {
     provider: String,
     model: String,
     api_key: String,
+    base_url: String,
 }
 
 impl Default for AppSettings {
@@ -29,6 +30,7 @@ impl Default for AppSettings {
             provider: "Nvidia".to_string(),
             model: "meta/llama-3.1-405b-instruct".to_string(),
             api_key: "".to_string(),
+            base_url: "https://integrate.api.nvidia.com/v1".to_string(),
         }
     }
 }
@@ -39,13 +41,7 @@ fn load_settings() -> AppSettings {
             return settings;
         }
     }
-    let mut default = AppSettings::default();
-    if let Ok(env_key) = env::var("NVIDIA_API_KEY") {
-        if !env_key.starts_with("nvapi-XXXX") {
-            default.api_key = env_key;
-        }
-    }
-    default
+    AppSettings::default()
 }
 
 fn save_settings(settings: &AppSettings) {
@@ -69,144 +65,54 @@ const NATIVE_HOMEPAGE: &str = r##"
     <meta charset="utf-8">
     <title>Linux Atlas</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #1a1a1a;
-            color: #ffffff;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            overflow: hidden;
-        }
-        .container {
-            text-align: center;
-            width: 100%;
-            max-width: 800px;
-            animation: slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .logo {
-            width: 140px;
-            height: 140px;
-            margin-bottom: 20px;
-            filter: drop-shadow(0 0 30px rgba(118, 185, 0, 0.3));
-            animation: float 4s ease-in-out infinite;
-        }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-12px); }
-        }
-        h1 {
-            font-size: 3.5rem;
-            font-weight: 900;
-            margin: 0 0 10px 0;
-            letter-spacing: -2px;
-            background: linear-gradient(135deg, #ffffff 30%, #76B900 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .tagline {
-            font-size: 1.1rem;
-            color: #888;
-            margin-bottom: 40px;
-            text-transform: uppercase;
-            letter-spacing: 4px;
-        }
-        .search-box {
-            position: relative;
-            width: 100%;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        input {
-            width: 100%;
-            background: #252525;
-            border: 2px solid #333;
-            border-radius: 16px;
-            padding: 18px 25px;
-            font-size: 1.25rem;
-            color: white;
-            outline: none;
-            transition: all 0.3s ease;
-            box-sizing: border-box;
-        }
-        input:focus {
-            border-color: #76B900;
-            background: #2a2a2a;
-            box-shadow: 0 0 40px rgba(118, 185, 0, 0.15);
-        }
-        input::placeholder {
-            color: #555;
-        }
-        .badge {
-            background: rgba(118, 185, 0, 0.1);
-            color: #76B900;
-            border: 1px solid rgba(118, 185, 0, 0.3);
-            padding: 6px 16px;
-            border-radius: 100px;
-            font-size: 0.75rem;
-            font-weight: 800;
-            margin-bottom: 24px;
-            display: inline-block;
-        }
+        :root { --accent: #76B900; --bg: #121212; }
+        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: var(--bg); color: white; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+        .container { text-align: center; width: 100%; max-width: 600px; animation: fadeIn 0.8s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .logo-wrap { position: relative; width: 140px; height: 140px; margin: 0 auto 20px; }
+        .logo { width: 100%; height: 100%; filter: drop-shadow(0 0 25px rgba(118, 185, 0, 0.4)); animation: float 4s ease-in-out infinite; }
+        @keyframes float { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-15px) rotate(2deg); } }
+        h1 { font-size: 3.5rem; font-weight: 800; margin: 0; letter-spacing: -2px; background: linear-gradient(135deg, #fff 40%, var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .tagline { color: #666; font-size: 1rem; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 3px; font-weight: 600; }
+        .search-box { position: relative; background: #1e1e1e; border: 1px solid #333; border-radius: 18px; display: flex; padding: 5px; transition: all 0.3s; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(118, 185, 0, 0.1), 0 10px 30px rgba(0,0,0,0.5); transform: translateY(-2px); }
+        input { flex: 1; background: transparent; border: none; padding: 15px 20px; font-size: 1.2rem; color: white; outline: none; }
+        input::placeholder { color: #444; }
+        .badge { background: rgba(118, 185, 0, 0.1); color: var(--accent); padding: 5px 15px; border-radius: 20px; font-size: 0.7rem; font-weight: 900; margin-bottom: 15px; display: inline-block; border: 1px solid rgba(118, 185, 0, 0.2); }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="badge">ATLAS AI ENGINE</div>
-        <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-                <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stop-color="#3584e4" />
-                    <stop offset="100%" stop-color="#76B900" />
-                </linearGradient>
-                <linearGradient id="tuxBelly" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stop-color="#e0e0e0" />
-                    <stop offset="100%" stop-color="#ffffff" />
-                </linearGradient>
-            </defs>
-            <path d="M50 10 C35 10 25 30 25 50 C25 80 35 90 50 90 C65 90 75 80 75 50 C75 30 65 10 50 10 Z" fill="url(#tuxGrad)"/>
-            <path d="M50 35 C40 35 32 45 32 65 C32 80 40 85 50 85 C60 85 68 80 68 65 C68 45 60 35 50 35 Z" fill="url(#tuxBelly)"/>
-            <circle cx="43" cy="35" r="5" fill="#fff"/><circle cx="57" cy="35" r="5" fill="#fff"/>
-            <circle cx="44" cy="35" r="2" fill="#242424"/><circle cx="56" cy="35" r="2" fill="#242424"/>
-            <path d="M46 42 Q50 48 54 42 Q50 44 46 42 Z" fill="#FFA500"/>
-            <path d="M46 42 Q50 46 54 42 Q50 40 46 42 Z" fill="#FF8C00"/>
-            <ellipse cx="35" cy="88" rx="8" ry="4" fill="#FFA500"/>
-            <ellipse cx="65" cy="88" rx="8" ry="4" fill="#FFA500"/>
-        </svg>
+        <div class="badge">LINUX ATLAS AI</div>
+        <div class="logo-wrap">
+            <svg class="logo" viewBox="0 0 100 100">
+                <defs>
+                    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#3584e4"/><stop offset="100%" stop-color="#76B900"/>
+                    </linearGradient>
+                </defs>
+                <path d="M50 10 C35 10 25 30 25 50 C25 80 35 90 50 90 C65 90 75 80 75 50 C75 30 65 10 50 10 Z" fill="url(#g)"/>
+                <path d="M50 35 C40 35 32 45 32 65 C32 80 40 85 50 85 C60 85 68 80 68 65 C68 45 60 35 50 35 Z" fill="#fff" opacity="0.9"/>
+                <circle cx="43" cy="35" r="5" fill="#fff"/><circle cx="57" cy="35" r="5" fill="#fff"/>
+                <circle cx="44" cy="35" r="2" fill="#121212"/><circle cx="56" cy="35" r="2" fill="#121212"/>
+                <path d="M46 42 Q50 48 54 42" stroke="#FFA500" fill="none" stroke-width="2" stroke-linecap="round"/>
+                <ellipse cx="35" cy="88" rx="8" ry="4" fill="#FFA500"/><ellipse cx="65" cy="88" rx="8" ry="4" fill="#FFA500"/>
+            </svg>
+        </div>
         <h1>Tux Search</h1>
-        <div class="tagline">The Web, Without the Junk.</div>
-        <form id="search-form" class="search-box">
-            <input type="text" id="search-input" placeholder="Search freely or enter a website..." autofocus autocomplete="off">
+        <div class="tagline">The Web, Without the Junk</div>
+        <form id="f" class="search-box">
+            <input type="text" id="i" placeholder="Search the web freely..." autofocus autocomplete="off">
         </form>
     </div>
     <script>
-        // Force focus on load
-        window.onload = () => {
-            document.getElementById('search-input').focus();
-        };
-        
-        document.getElementById('search-form').addEventListener('submit', function(e) {
+        window.onload = () => document.getElementById('i').focus();
+        document.getElementById('f').onsubmit = (e) => {
             e.preventDefault();
-            let query = document.getElementById('search-input').value.trim();
-            if (!query) return;
-            
-            let uri = query;
-            if (query.startsWith('http://') || query.startsWith('https://')) {
-            } else if (query.includes('.') && !query.includes(' ')) {
-                uri = 'https://' + query;
-            } else {
-                uri = 'https://www.google.com/search?q=' + encodeURIComponent(query);
-            }
-            window.location.href = uri;
-        });
+            let v = document.getElementById('i').value.trim();
+            if(!v) return;
+            window.location.href = (v.includes('.') && !v.includes(' ')) ? (v.startsWith('http') ? v : 'https://'+v) : 'https://www.google.com/search?q='+encodeURIComponent(v);
+        };
     </script>
 </body>
 </html>
@@ -215,805 +121,187 @@ const NATIVE_HOMEPAGE: &str = r##"
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    
-    // Disable TLS 1.3 completely as a last resort workaround for the GnuTLS bug on Fedora 43
     unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:-VERS-TLS1.3"); }
-    
-    let app = adw::Application::builder()
-        .application_id("com.github.linux_atlas")
-        .build();
-
+    let app = adw::Application::builder().application_id("com.github.linux_atlas").build();
     app.connect_startup(|_| {
         let provider = gtk::CssProvider::new();
-        provider.load_from_data(
-            "
-            .sidebar-bg {
-                background-color: @window_bg_color;
-                border-left: 1px solid @borders;
-            }
-            .chat-bubble-user {
-                background-color: @accent_bg_color;
-                color: @accent_fg_color;
-                border-radius: 12px;
-                padding: 10px 14px;
-            }
-            .chat-bubble-ai {
-                background-color: @card_bg_color;
-                color: @card_fg_color;
-                border-radius: 12px;
-                padding: 10px 14px;
-                border: 1px solid @borders;
-            }
-            "
-        );
-        gtk::style_context_add_provider_for_display(
-            &gtk::gdk::Display::default().unwrap(),
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+        provider.load_from_data(".sidebar-bg { background-color: @window_bg_color; border-left: 1px solid @borders; } .chat-bubble-user { background-color: @accent_bg_color; color: @accent_fg_color; border-radius: 14px; padding: 12px 16px; font-weight: 500; } .chat-bubble-ai { background-color: @card_bg_color; color: @card_fg_color; border-radius: 14px; padding: 12px 16px; border: 1px solid @borders; line-height: 1.5; }");
+        gtk::style_context_add_provider_for_display(&gtk::gdk::Display::default().unwrap(), &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     });
-
     app.connect_activate(build_ui);
-
     app.run();
 }
 
-fn create_tab(
-    tab_view: &adw::TabView,
-    content_manager: &webkit::UserContentManager,
-    settings: &webkit::Settings,
-    accepted_http: Rc<RefCell<std::collections::HashSet<String>>>,
-    url_entry: gtk::Entry,
-) -> webkit::WebView {
-    let web_view = webkit::WebView::builder()
-        .user_content_manager(content_manager)
-        .settings(settings)
-        .hexpand(true)
-        .vexpand(true)
-        .build();
-
-    let tv_clone = tab_view.clone();
-    let ue_clone = url_entry.clone();
-    web_view.connect_uri_notify(move |wv| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
-                if child_wv == *wv {
-                    if let Some(uri) = wv.uri() {
-                        if uri == "atlas://home" || uri == "atlas://home/" {
-                            ue_clone.set_text("");
-                        } else {
-                            ue_clone.set_text(&uri);
-                        }
-                    }
-                }
+fn create_tab(tv: &adw::TabView, cm: &webkit::UserContentManager, st: &webkit::Settings, ah: Rc<RefCell<std::collections::HashSet<String>>>, ue: gtk::Entry, wc: &webkit::WebContext) -> webkit::WebView {
+    let wv = webkit::WebView::builder().user_content_manager(cm).settings(st).web_context(wc).hexpand(true).vexpand(true).build();
+    let tv_c = tv.clone(); let ue_c = ue.clone();
+    wv.connect_uri_notify(move |w| { if let Some(p) = tv_c.selected_page() { if let Ok(cw) = p.child().downcast::<webkit::WebView>() { if cw == *w {
+        if let Some(u) = w.uri() { ue_c.set_text(if u=="atlas://home" {""} else {&u}); }
+    } } } });
+    let tv_c2 = tv.clone();
+    wv.connect_title_notify(move |w| { for i in 0..tv_c2.n_pages() { let p = tv_c2.nth_page(i); if let Ok(cw) = p.child().downcast::<webkit::WebView>() { if cw == *w {
+        p.set_title(&w.title().unwrap_or_else(|| "New Tab".into())); break;
+    } } } });
+    let ah_c = ah.clone();
+    wv.connect_decide_policy(move |w, d, dt| {
+        if dt == webkit::PolicyDecisionType::NavigationAction { if let Some(nd) = d.downcast_ref::<webkit::NavigationPolicyDecision>() { if let Some(a) = nd.navigation_action() { if let Some(r) = a.request() { if let Some(u) = r.uri() {
+            let us = u.as_str(); if us.starts_with("http://") && !us.starts_with("http://localhost") {
+                let dom = us.split('/').nth(2).unwrap_or("").to_string();
+                if !ah_c.borrow().contains(&dom) { d.ignore(); if let Some(win) = w.root().and_downcast::<gtk::Window>() {
+                    let dlg = gtk::MessageDialog::builder().text("Unsafe Connection").secondary_text("HTTPS required. Proceed?").message_type(gtk::MessageType::Warning).buttons(gtk::ButtonsType::None).transient_for(&win).build();
+                    dlg.add_button("No", gtk::ResponseType::Reject); dlg.add_button("Freedom", gtk::ResponseType::Accept);
+                    let w_c = w.clone(); let u_c = us.to_string(); let ah_c2 = ah_c.clone();
+                    let dom_c = dom.clone();
+                    dlg.connect_response(move |dialog, res| { if res == gtk::ResponseType::Accept { ah_c2.borrow_mut().insert(dom_c.clone()); w_c.load_uri(&u_c); } dialog.destroy(); });
+                    dlg.present();
+                } return true; }
             }
-        }
+        } } } } } false
     });
-
-    let tv_clone2 = tab_view.clone();
-    web_view.connect_title_notify(move |wv| {
-        for i in 0..tv_clone2.n_pages() {
-            let page = tv_clone2.nth_page(i);
-            if let Ok(child_wv) = page.child().downcast::<webkit::WebView>() {
-                if child_wv == *wv {
-                    if let Some(title) = wv.title() {
-                        if title.is_empty() {
-                            page.set_title("New Tab");
-                        } else {
-                            page.set_title(&title);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-    });
-
-    let ah_clone = accepted_http.clone();
-    web_view.connect_decide_policy(move |wv, decision, decision_type| {
-        if decision_type == webkit::PolicyDecisionType::NavigationAction {
-            if let Some(nav_decision) = decision.downcast_ref::<webkit::NavigationPolicyDecision>() {
-                if let Some(action) = nav_decision.navigation_action() {
-                    if let Some(request) = action.request() {
-                        if let Some(uri) = request.uri() {
-                            let uri_str = uri.as_str();
-                            if uri_str.starts_with("http://") && !uri_str.starts_with("http://localhost") && !uri_str.starts_with("http://127.0.0.1") {
-                                let domain = uri_str.split('/').nth(2).unwrap_or("").to_string();
-                                if !ah_clone.borrow().contains(&domain) {
-                                    decision.ignore();
-                                    
-                                    if let Some(win) = wv.root().and_downcast::<gtk::Window>() {
-                                        let dialog = gtk::MessageDialog::builder()
-                                            .text("Unsafe Connection")
-                                            .secondary_text("This website is not using HTTPS (TLS). Your connection is not private.\n\nAre you sure you want to proceed?")
-                                            .message_type(gtk::MessageType::Warning)
-                                            .buttons(gtk::ButtonsType::None)
-                                            .transient_for(&win)
-                                            .build();
-                                            
-                                        dialog.add_button("uhh no, with linux", gtk::ResponseType::Reject);
-                                        dialog.add_button("Yes, I have Freedom", gtk::ResponseType::Accept);
-                                        
-                                        let wv_c = wv.clone();
-                                        let uri_c = uri_str.to_string();
-                                        let ah_c2 = ah_clone.clone();
-                                        
-                                        dialog.connect_response(move |dlg, response| {
-                                            if response == gtk::ResponseType::Accept {
-                                                ah_c2.borrow_mut().insert(domain.clone());
-                                                wv_c.load_uri(&uri_c);
-                                            }
-                                            dlg.destroy();
-                                        });
-                                        dialog.present();
-                                    }
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        false
-    });
-
-    web_view.connect_load_failed(|_, _load_event, _uri, error| {
-        let err_msg = error.message();
-        if err_msg.contains("peer sent fatal tls alert") || err_msg.contains("close notify") {
-            return true;
-        }
-        false 
-    });
-
-    let page = tab_view.append(&web_view);
-    page.set_title("New Tab");
-    tab_view.set_selected_page(&page);
-    
-    web_view
+    wv.connect_load_failed(|_, _, _, e| { e.message().contains("close notify") || e.message().contains("fatal tls alert") });
+    let page = tv.append(&wv); page.set_title("New Tab"); tv.set_selected_page(&page);
+    wv
 }
 
 fn build_ui(app: &adw::Application) {
-    let window = adw::ApplicationWindow::builder()
-        .application(app)
-        .title("Linux Atlas")
-        .default_width(1200)
-        .default_height(800)
-        .build();
-
+    let win = adw::ApplicationWindow::builder().application(app).title("Linux Atlas").default_width(1200).default_height(800).build();
     let app_settings = Rc::new(RefCell::new(load_settings()));
+    let split = adw::Flap::builder().flap_position(gtk::PackType::End).fold_policy(adw::FlapFoldPolicy::Never).build();
+    let cm = webkit::UserContentManager::new();
+    cm.add_script(&webkit::UserScript::new("window.addEventListener('atlas:request_context', function() { let h = window.getSelection().toString(); let c = document.querySelector('article, main, [role=\"main\"]')?.innerText || document.body.innerText; let data = { url: window.location.href, title: document.title, highlighted_text: h, main_content: c.substring(0, 4000) }; window.webkit.messageHandlers.atlas_bridge.postMessage(JSON.stringify(data)); });", webkit::UserContentInjectedFrames::TopFrame, webkit::UserScriptInjectionTime::End, &[], &[]));
+    cm.register_script_message_handler("atlas_bridge", None);
+    let st = webkit::Settings::builder().user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0").enable_webaudio(true).enable_webgl(true).enable_media_stream(true).enable_developer_extras(true).build();
+    let tv = adw::TabView::new(); let tb = adw::TabBar::builder().view(&tv).autohide(false).build();
+    let ue = gtk::Entry::builder().placeholder_text("Search or enter address").hexpand(true).max_width_chars(50).build();
+    let hb = adw::HeaderBar::new();
+    let ntb = gtk::Button::from_icon_name("tab-new-symbolic"); let hom = gtk::Button::from_icon_name("go-home-symbolic"); let bck = gtk::Button::from_icon_name("go-previous-symbolic"); let fwd = gtk::Button::from_icon_name("go-next-symbolic"); let rel = gtk::Button::from_icon_name("view-refresh-symbolic"); let tai = gtk::Button::from_icon_name("view-sidebar-symbolic");
+    hb.pack_start(&ntb); hb.pack_start(&hom); hb.pack_start(&bck); hb.pack_start(&fwd); hb.pack_start(&rel); hb.set_title_widget(Some(&ue)); hb.pack_end(&tai);
+    let cache = format!("{}/.cache/atlas-browser", env::var("HOME").unwrap_or_else(|_| "/tmp".into())); let _ = std::fs::create_dir_all(&cache);
+    let wc = webkit::WebContext::new();
+    let ah = Rc::new(RefCell::new(std::collections::HashSet::new()));
+    create_tab(&tv, &cm, &st, ah.clone(), ue.clone(), &wc).load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
+    let tv_c = tv.clone(); let cm_c = cm.clone(); let st_c = st.clone(); let ue_c = ue.clone(); let ah_c = ah.clone(); let wc_c = wc.clone();
+    ntb.connect_clicked(move |_| { create_tab(&tv_c, &cm_c, &st_c, ah_c.clone(), ue_c.clone(), &wc_c).load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None); });
+    let tv_c = tv.clone(); hom.connect_clicked(move |_| { if let Some(p) = tv_c.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { w.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None); } } });
+    let tv_c = tv.clone(); bck.connect_clicked(move |_| { if let Some(p) = tv_c.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { w.go_back(); } } });
+    let tv_c = tv.clone(); fwd.connect_clicked(move |_| { if let Some(p) = tv_c.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { w.go_forward(); } } });
+    let tv_c = tv.clone(); rel.connect_clicked(move |_| { if let Some(p) = tv_c.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { w.reload(); } } });
+    let tv_c = tv.clone(); ue.connect_activate(move |e| { let v = e.text().to_string(); let uri = if v.starts_with("http") { v } else if v.contains('.') && !v.contains(' ') { format!("https://{}", v) } else { format!("https://www.google.com/search?q={}", v) }; if let Some(p) = tv_c.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { w.load_uri(&uri); } } });
+    let ue_c = ue.clone(); tv.connect_selected_page_notify(move |t| { if let Some(p) = t.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { ue_c.set_text(&w.uri().unwrap_or_else(|| "".into()).replace("atlas://home", "")); } } });
+    tv.connect_close_page(move |t, p| { t.close_page_finish(p, true); true.into() });
+    let mv = gtk::Box::new(gtk::Orientation::Vertical, 0); mv.append(&hb); mv.append(&tb); mv.append(&tv);
+    let sb = gtk::Box::builder().orientation(gtk::Orientation::Vertical).width_request(400).css_classes(["sidebar-bg"]).build();
+    let ch = adw::HeaderBar::new(); let tl = gtk::Label::new(Some("Atlas AI")); tl.add_css_class("title"); ch.set_title_widget(Some(&tl));
+    let stb = gtk::Button::from_icon_name("emblem-system-symbolic"); ch.pack_end(&stb);
+    let cs = gtk::ScrolledWindow::builder().vexpand(true).build(); let cb = gtk::Box::new(gtk::Orientation::Vertical, 16); cb.set_margin_start(16); cb.set_margin_end(16); cb.set_margin_top(16); cb.set_margin_bottom(16); cs.set_child(Some(&cb));
+    let ci = gtk::Entry::builder().placeholder_text("Ask Atlas AI...").margin_start(12).margin_end(12).margin_top(12).margin_bottom(12).build();
+    sb.append(&ch); sb.append(&cs); sb.append(&ci); split.set_content(Some(&mv)); split.set_flap(Some(&sb)); split.set_reveal_flap(false);
 
-    let split_view = adw::Flap::builder()
-        .flap_position(gtk::PackType::End)
-        .fold_policy(adw::FlapFoldPolicy::Never)
-        .build();
-
-    let content_manager = webkit::UserContentManager::new();
-
-    let extraction_script = webkit::UserScript::new(
-        r#"
-        window.addEventListener('atlas:request_context', function(e) {
-            let highlighted = window.getSelection().toString();
-            
-            let mainContent = "";
-            let article = document.querySelector('article, main, [role="main"]');
-            if (article) {
-                mainContent = article.innerText;
-            } else {
-                mainContent = document.body.innerText;
-            }
-            
-            mainContent = mainContent.substring(0, 4000);
-
-            let contextData = {
-                url: window.location.href,
-                title: document.title,
-                highlighted_text: highlighted,
-                main_content: mainContent
-            };
-            
-            window.webkit.messageHandlers.atlas_bridge.postMessage(JSON.stringify(contextData));
-        });
-        "#,
-        webkit::UserContentInjectedFrames::TopFrame,
-        webkit::UserScriptInjectionTime::End,
-        &[],
-        &[],
-    );
-    content_manager.add_script(&extraction_script);
-    content_manager.register_script_message_handler("atlas_bridge", None);
-
-    // THE FIREFOX METHOD: Using a generic Firefox on Linux User Agent to avoid Google's "Chrome bot" detection
-    let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0")
-        .enable_webaudio(true)
-        .enable_webgl(true)
-        .enable_media_stream(true)
-        .enable_developer_extras(true)
-        .build();
-
-    let filter_path_str = std::env::temp_dir().to_string_lossy().to_string();
-    let filter_manager = webkit::UserContentFilterStore::new(&filter_path_str);
-    let filter_json = r#"
-    [
-        {"trigger": {"url-filter": ".*(?:doubleclick\\.net|googleadservices\\.com|ads\\.youtube\\.com).*"}, "action": {"type": "block"}},
-        {"trigger": {"url-filter": ".*(?:amazon-adsystem\\.com|adnxs\\.com|taboola\\.com).*"}, "action": {"type": "block"}}
-    ]
-    "#;
-    let filter_path = std::env::temp_dir().join("atlas_adblock.json");
-    std::fs::write(&filter_path, filter_json).unwrap();
-    
-    let content_manager_clone = content_manager.clone();
-    filter_manager.save_from_file(
-        "adblock",
-        &gtk::gio::File::for_path(&filter_path),
-        None::<&gtk::gio::Cancellable>,
-        move |result| {
-            if let Ok(filter) = result {
-                content_manager_clone.add_filter(&filter);
-            }
-        }
-    );
-
-    let tab_view = adw::TabView::new();
-    let tab_bar = adw::TabBar::builder()
-        .view(&tab_view)
-        .autohide(false)
-        .build();
-
-    let header_bar = adw::HeaderBar::new();
-    let url_entry = gtk::Entry::builder()
-        .placeholder_text("Search the web or enter address")
-        .hexpand(true)
-        .max_width_chars(50)
-        .build();
-
-    let new_tab_btn = gtk::Button::from_icon_name("tab-new-symbolic");
-    let home_btn = gtk::Button::from_icon_name("go-home-symbolic");
-    let back_btn = gtk::Button::from_icon_name("go-previous-symbolic");
-    let fwd_btn = gtk::Button::from_icon_name("go-next-symbolic");
-    let reload_btn = gtk::Button::from_icon_name("view-refresh-symbolic");
-    let toggle_ai_btn = gtk::Button::from_icon_name("view-sidebar-symbolic");
-
-    header_bar.pack_start(&new_tab_btn);
-    header_bar.pack_start(&home_btn);
-    header_bar.pack_start(&back_btn);
-    header_bar.pack_start(&fwd_btn);
-    header_bar.pack_start(&reload_btn);
-    header_bar.set_title_widget(Some(&url_entry));
-    header_bar.pack_end(&toggle_ai_btn);
-
-    let accepted_http: Rc<RefCell<std::collections::HashSet<String>>> = Rc::new(RefCell::new(std::collections::HashSet::new()));
-
-    // Create the initial tab
-    let wv_initial = create_tab(&tab_view, &content_manager, &settings, accepted_http.clone(), url_entry.clone());
-    
-    wv_initial.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
-
-    let tv_clone = tab_view.clone();
-    let cm_clone = content_manager.clone();
-    let settings_clone = settings.clone();
-    let ue_clone = url_entry.clone();
-    let ah_clone = accepted_http.clone();
-    new_tab_btn.connect_clicked(move |_| {
-        let wv = create_tab(&tv_clone, &cm_clone, &settings_clone, ah_clone.clone(), ue_clone.clone());
-        wv.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
-    });
-
-    let tv_clone = tab_view.clone();
-    home_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                wv.load_alternate_html(NATIVE_HOMEPAGE, "atlas://home", None);
-            }
-        }
-    });
-
-    let tv_clone = tab_view.clone();
-    back_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                wv.go_back();
-            }
-        }
-    });
-
-    let tv_clone = tab_view.clone();
-    fwd_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                wv.go_forward();
-            }
-        }
-    });
-
-    let tv_clone = tab_view.clone();
-    reload_btn.connect_clicked(move |_| {
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                wv.reload();
-            }
-        }
-    });
-
-    let tv_clone = tab_view.clone();
-    url_entry.connect_activate(move |entry| {
-        let text = entry.text().to_string();
-        let uri = if text.starts_with("http://") || text.starts_with("https://") {
-            text
-        } else if text.contains('.') && !text.contains(' ') {
-            format!("https://{}", text)
-        } else {
-            format!("https://www.google.com/search?q={}", text)
-        };
-        
-        if let Some(page) = tv_clone.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                wv.load_uri(&uri);
-            }
-        }
-    });
-
-    let ue_clone = url_entry.clone();
-    tab_view.connect_selected_page_notify(move |tv| {
-        if let Some(page) = tv.selected_page() {
-            if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                if let Some(uri) = wv.uri() {
-                    if uri == "atlas://home" || uri == "atlas://home/" {
-                        ue_clone.set_text("");
-                    } else {
-                        ue_clone.set_text(&uri);
-                    }
-                } else {
-                    ue_clone.set_text("");
-                }
-            }
-        }
-    });
-
-    tab_view.connect_close_page(move |tv, page| {
-        tv.close_page_finish(page, true);
-        true.into()
-    });
-
-    let main_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    main_content.append(&header_bar);
-    main_content.append(&tab_bar);
-    main_content.append(&tab_view);
-
-    // --- Sidebar ---
-    let sidebar_content = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .width_request(400)
-        .vexpand(true)
-        .hexpand(false)
-        .css_classes(["sidebar-bg"])
-        .build();
-
-    let chat_header = adw::HeaderBar::new();
-    chat_header.set_show_end_title_buttons(true);
-    chat_header.set_show_start_title_buttons(false);
-    let title_label = gtk::Label::new(Some("Atlas AI Agent"));
-    title_label.add_css_class("title");
-    chat_header.set_title_widget(Some(&title_label));
-    
-    let settings_btn = gtk::Button::from_icon_name("emblem-system-symbolic");
-    chat_header.pack_end(&settings_btn);
-
-    let chat_history = gtk::ScrolledWindow::builder()
-        .vexpand(true)
-        .hexpand(false)
-        .build();
-        
-    let chat_box = gtk::Box::new(gtk::Orientation::Vertical, 16);
-    chat_box.set_margin_top(16);
-    chat_box.set_margin_bottom(16);
-    chat_box.set_margin_start(16);
-    chat_box.set_margin_end(16);
-    chat_history.set_child(Some(&chat_box));
-    
-    let welcome_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    welcome_box.set_halign(gtk::Align::Center);
-    let welcome_label = gtk::Label::builder()
-        .label("👋 Hello, I am Atlas.\n\nClick the ⚙️ icon above to select your AI Provider and Model. Then ask me to analyze a page or click buttons!")
-        .wrap(true)
-        .justify(gtk::Justification::Center)
-        .css_classes(["dim-label"])
-        .build();
-    welcome_box.append(&welcome_label);
-    chat_box.append(&welcome_box);
-
-    let chat_input = gtk::Entry::builder()
-        .placeholder_text("Ask Atlas to analyze or act...")
-        .margin_start(12)
-        .margin_end(12)
-        .margin_bottom(12)
-        .build();
-
-    sidebar_content.append(&chat_header);
-    sidebar_content.append(&chat_history);
-    sidebar_content.append(&chat_input);
-
-    split_view.set_content(Some(&main_content));
-    split_view.set_flap(Some(&sidebar_content));
-    split_view.set_reveal_flap(false);
-    
-    // --- Settings UI Dialog ---
-    let as_clone_btn = app_settings.clone();
-    let win_clone = window.clone();
-    settings_btn.connect_clicked(move |_| {
-        let pref_win = adw::Window::builder()
-            .title("Atlas AI Configuration")
-            .default_width(450)
-            .default_height(450)
-            .modal(true)
-            .transient_for(&win_clone)
-            .build();
-            
-        let toolbar_view = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let header = adw::HeaderBar::new();
-        toolbar_view.append(&header);
-            
-        let page = adw::PreferencesPage::new();
-        let group = adw::PreferencesGroup::new();
-        group.set_title("Provider & Model Configuration");
-        
-        let provider_row = adw::ComboRow::builder().title("Provider").build();
-        let provider_list = gtk::StringList::new(&["Nvidia", "Gemini", "OpenAI"]);
-        provider_row.set_model(Some(&provider_list));
-        
-        let current_prov = as_clone_btn.borrow().provider.clone();
-        let idx = match current_prov.as_str() {
-            "Gemini" => 1,
-            "OpenAI" => 2,
-            _ => 0,
-        };
-        
-        let model_row = adw::ComboRow::builder().title("Model").build();
-        let model_list = gtk::StringList::new(&[as_clone_btn.borrow().model.as_str()]);
-        model_row.set_model(Some(&model_list));
-        
-        provider_row.set_selected(idx);
-        
-        let key_row = adw::ActionRow::builder()
-            .title("API Key")
-            .build();
-        let key_entry = gtk::PasswordEntry::builder()
-            .text(&as_clone_btn.borrow().api_key)
-            .valign(gtk::Align::Center)
-            .hexpand(true)
-            .show_peek_icon(true)
-            .build();
-        key_row.add_suffix(&key_entry);
-            
-        group.add(&provider_row);
-        group.add(&model_row);
-        group.add(&key_row);
-        page.add(&group);
-        
-        let sync_btn = gtk::Button::builder()
-            .label("Sync Models from Endpoint")
-            .css_classes(["suggested-action"])
-            .margin_start(16)
-            .margin_end(16)
-            .margin_top(8)
-            .build();
-            
-        let apply_btn = gtk::Button::builder()
-            .label("Apply Settings")
-            .css_classes(["suggested-action"])
-            .margin_top(8)
-            .margin_bottom(16)
-            .margin_start(16)
-            .margin_end(16)
-            .build();
-            
-        let box_layout = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        box_layout.append(&page);
-        box_layout.append(&sync_btn);
-        box_layout.append(&apply_btn);
-        
-        toolbar_view.append(&box_layout);
-        pref_win.set_content(Some(&toolbar_view));
-        
-        let pr_sync = provider_row.clone();
-        let kr_sync = key_entry.clone();
-        let mr_sync = model_row.clone();
-        let sb_sync = sync_btn.clone();
-        
-        sync_btn.connect_clicked(move |_| {
-            let provider = match pr_sync.selected() {
-                1 => "Gemini",
-                2 => "OpenAI",
-                _ => "Nvidia",
-            }.to_string();
-            let key = kr_sync.text().to_string();
-            let mr_c = mr_sync.clone();
-            let sb_c = sb_sync.clone();
-            
-            sb_c.set_label("Syncing...");
-            sb_c.set_sensitive(false);
-            
+    let as_c = app_settings.clone(); let wn_c = win.clone();
+    stb.connect_clicked(move |_| {
+        let pw = adw::Window::builder().title("Settings").default_width(450).default_height(500).modal(true).transient_for(&wn_c).build();
+        let bx = gtk::Box::new(gtk::Orientation::Vertical, 0); let h = adw::HeaderBar::new(); bx.append(&h);
+        let pg = adw::PreferencesPage::new(); let gr = adw::PreferencesGroup::new(); gr.set_title("API Config");
+        let pr = adw::ComboRow::builder().title("Provider").build(); let pl = gtk::StringList::new(&["Nvidia", "Gemini", "OpenAI", "Custom"]); pr.set_model(Some(&pl));
+        let mr = adw::ComboRow::builder().title("Model").build();
+        let ar = adw::ActionRow::builder().title("API Key").build();
+        let ke = gtk::PasswordEntry::builder().hexpand(true).valign(gtk::Align::Center).show_peek_icon(true).build(); ar.add_suffix(&ke);
+        let br = adw::ActionRow::builder().title("Base URL").build();
+        let be = gtk::Entry::builder().hexpand(true).valign(gtk::Align::Center).build(); br.add_suffix(&be);
+        let cur = as_c.borrow().clone(); pr.set_selected(match cur.provider.as_str() {"Gemini"=>1,"OpenAI"=>2,"Custom"=>3,_=>0});
+        ke.set_text(&cur.api_key); be.set_text(&cur.base_url); let ml = gtk::StringList::new(&[cur.model.as_str()]); mr.set_model(Some(&ml));
+        gr.add(&pr); gr.add(&mr); gr.add(&ar); gr.add(&br); pg.add(&gr); bx.append(&pg);
+        let sn = gtk::Button::builder().label("Sync Models").css_classes(["suggested-action"]).margin_start(16).margin_end(16).margin_top(8).build();
+        let ap = gtk::Button::builder().label("Apply").css_classes(["suggested-action"]).margin_start(16).margin_end(16).margin_top(8).margin_bottom(16).build();
+        bx.append(&sn); bx.append(&ap); pw.set_content(Some(&bx));
+        let mr_c = mr.clone(); let pr_c = pr.clone(); let ke_c = ke.clone(); let be_c = be.clone(); let sn_c = sn.clone();
+        sn.connect_clicked(move |_| {
+            let prov = match pr_c.selected() {1=>"Gemini",2=>"OpenAI",3=>"Custom",_=>"Nvidia"}.to_string();
+            let key = ke_c.text().to_string(); let url = be_c.text().to_string();
+            let b = sn_c.clone(); let m = mr_c.clone(); b.set_label("Syncing..."); b.set_sensitive(false);
             gtk::glib::spawn_future_local(async move {
-                let mut config = OpenAIConfig::new().with_api_key(&key);
-                if provider == "Nvidia" {
-                    config = config.with_api_base("https://integrate.api.nvidia.com/v1");
-                } else if provider == "Gemini" {
-                    config = config.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");
-                }
-                
-                let client = Client::with_config(config);
-                match client.models().list().await {
-                    Ok(resp) => {
-                        let mut models: Vec<String> = resp.data.iter()
-                            .map(|m| m.id.clone())
-                            .filter(|id| !id.contains("vision") && !id.contains("embedding") && !id.contains("tts"))
-                            .collect();
-                        models.sort();
-                        
-                        let new_list = gtk::StringList::new(&models.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
-                        mr_c.set_model(Some(&new_list));
-                        sb_c.set_label("Sync Complete!");
-                    }
-                    Err(e) => {
-                        sb_c.set_label(&format!("Error: {:?}", e));
-                    }
-                }
-                sb_c.set_sensitive(true);
+                let mut cfg = OpenAIConfig::new().with_api_key(&key).with_api_base(&url);
+                if prov == "Nvidia" { cfg = cfg.with_api_base("https://integrate.api.nvidia.com/v1"); }
+                else if prov == "Gemini" { cfg = cfg.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/"); }
+                let client = Client::with_config(cfg);
+                if let Ok(r) = client.models().list().await {
+                    let mut ms: Vec<String> = r.data.iter().map(|m| m.id.clone()).filter(|id| !id.contains("vision") && !id.contains("embed")).collect(); ms.sort();
+                    let nl = gtk::StringList::new(&ms.iter().map(|s| s.as_str()).collect::<Vec<&str>>()); m.set_model(Some(&nl)); b.set_label("Sync Complete");
+                } else { b.set_label("Sync Failed"); }
+                b.set_sensitive(true);
             });
         });
-        
-        let as_save = as_clone_btn.clone();
-        let pr_save = provider_row.clone();
-        let mr_save = model_row.clone();
-        let kr_save = key_entry.clone();
-        let pw_save = pref_win.clone();
-        
-        apply_btn.connect_clicked(move |_| {
-            let mut s = as_save.borrow_mut();
-            s.provider = match pr_save.selected() {
-                1 => "Gemini".to_string(),
-                2 => "OpenAI".to_string(),
-                _ => "Nvidia".to_string(),
-            };
-            
-            if let Some(item) = mr_save.selected_item() {
-                if let Ok(string_obj) = item.downcast::<gtk::StringObject>() {
-                    s.model = string_obj.string().to_string();
-                }
-            }
-            s.api_key = kr_save.text().to_string();
-            save_settings(&s);
-            pw_save.destroy();
+        let as_s = as_c.clone(); let pw_s = pw.clone();
+        ap.connect_clicked(move |_| {
+            let mut s = as_s.borrow_mut(); s.provider = match pr.selected() {1=>"Gemini".into(),2=>"OpenAI".into(),3=>"Custom".into(),_=>"Nvidia".into()};
+            if let Some(i) = mr.selected_item() { if let Ok(so) = i.downcast::<gtk::StringObject>() { s.model = so.string().to_string(); } }
+            s.api_key = ke.text().to_string(); s.base_url = be.text().to_string(); save_settings(&s); pw_s.destroy();
         });
-        
-        pref_win.present();
+        pw.present();
     });
 
-    let latest_context: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
-    let lc_clone = latest_context.clone();
-
-    content_manager.connect_script_message_received(Some("atlas_bridge"), move |_manager, message| {
-        if let Some(js_val) = message.to_json(0) {
-            let json_str = js_val.to_string();
-            if let Ok(unquoted) = serde_json::from_str::<String>(&json_str) {
-                 if let Ok(context) = serde_json::from_str::<PageContext>(&unquoted) {
-                     *lc_clone.borrow_mut() = Some(context);
-                 }
-            }
-        }
+    let l_ctx: Rc<RefCell<Option<PageContext>>> = Rc::new(RefCell::new(None));
+    let lc_c = l_ctx.clone();
+    cm.connect_script_message_received(Some("atlas_bridge"), move |_, m| {
+        if let Some(jv) = m.to_json(0) { if let Ok(us) = serde_json::from_str::<String>(&jv.to_string()) {
+            if let Ok(ctx) = serde_json::from_str::<PageContext>(&us) { *lc_c.borrow_mut() = Some(ctx); }
+        } }
     });
 
-    let sv_clone = split_view.clone();
-    let tv_clone = tab_view.clone();
-    toggle_ai_btn.connect_clicked(move |_| {
-        let current = sv_clone.reveals_flap();
-        sv_clone.set_reveal_flap(!current);
-        
-        if !current {
-            if let Some(page) = tv_clone.selected_page() {
-                if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                    wv.evaluate_javascript(
-                        "window.dispatchEvent(new Event('atlas:request_context'));",
-                        None,
-                        None,
-                        None::<&gtk::gio::Cancellable>,
-                        |_| {} 
-                    );
-                }
-            }
-        }
+    let sv_c = split.clone(); let tv_c = tv.clone();
+    tai.connect_clicked(move |_| {
+        sv_c.set_reveal_flap(!sv_c.reveals_flap());
+        if sv_c.reveals_flap() { if let Some(p) = tv_c.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() {
+            w.evaluate_javascript("window.dispatchEvent(new Event('atlas:request_context'));", None, None, None::<&gtk::gio::Cancellable>, |_| {});
+        } } }
     });
     
-    let chat_box_clone = chat_box.clone();
-    let latest_context_ai = latest_context.clone();
-    let chat_history_scroll = chat_history.clone();
-    let tv_agent_clone = tab_view.clone();
-    let app_settings_ai = app_settings.clone();
-    
-    chat_input.connect_activate(move |entry| {
-        let user_prompt = entry.text().to_string();
-        if user_prompt.is_empty() {
-            return;
-        }
+    let cb_c = cb.clone(); let lc_ai = l_ctx.clone(); let cs_c = cs.clone(); let tv_ai = tv.clone(); let as_ai = app_settings.clone();
+    ci.connect_activate(move |entry| {
+        let pmt = entry.text().to_string(); if pmt.is_empty() { return; }
         entry.set_text("");
-        
-        let user_wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        user_wrapper.set_halign(gtk::Align::End);
-        let user_label = gtk::Label::builder()
-            .label(&user_prompt)
-            .wrap(true)
-            .css_classes(["chat-bubble-user"])
-            .build();
-        user_wrapper.append(&user_label);
-        chat_box_clone.append(&user_wrapper);
-
-        let ai_wrapper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        ai_wrapper.set_halign(gtk::Align::Start);
-        let ai_label = gtk::Label::builder()
-            .label("Thinking...")
-            .wrap(true)
-            .css_classes(["chat-bubble-ai"])
-            .build();
-        ai_wrapper.append(&ai_label);
-        chat_box_clone.append(&ai_wrapper);
-        
-        let adj = chat_history_scroll.vadjustment();
-        adj.set_value(adj.upper());
-        
-        let context_opt = latest_context_ai.borrow().clone();
-        let (sender, receiver) = async_channel::unbounded::<String>();
-        let ai_label_clone = ai_label.clone();
-        let tv_agent_clone2 = tv_agent_clone.clone();
-        let chs_clone = chat_history_scroll.clone();
-        
+        let u_w = gtk::Box::new(gtk::Orientation::Horizontal, 0); u_w.set_halign(gtk::Align::End);
+        let u_l = gtk::Label::builder().label(&pmt).wrap(true).css_classes(["chat-bubble-user"]).build();
+        u_w.append(&u_l); cb_c.append(&u_w);
+        let a_w = gtk::Box::new(gtk::Orientation::Horizontal, 0); a_w.set_halign(gtk::Align::Start);
+        let a_l = gtk::Label::builder().label("Thinking...").wrap(true).css_classes(["chat-bubble-ai"]).build();
+        a_w.append(&a_l); cb_c.append(&a_w);
+        let adj = cs_c.vadjustment(); adj.set_value(adj.upper());
+        let ctx = lc_ai.borrow().clone(); let (tx, rx) = async_channel::unbounded::<String>();
+        let al_c = a_l.clone(); let tv_c2 = tv_ai.clone(); let chs_c = cs_c.clone();
         gtk::glib::spawn_future_local(async move {
-            let mut full_ai_response = String::new();
-            while let Ok(chunk) = receiver.recv().await {
-                if chunk.starts_with("[ERROR") {
-                     ai_label_clone.set_label(&format!("API Error: {}", chunk));
-                     break;
+            let mut fl = String::new();
+            while let Ok(ck) = rx.recv().await {
+                if ck == "[DONE]" {
+                    if fl.contains("[CLICK: ") {
+                        let s = fl.find("[CLICK: ").unwrap()+8; let e = fl[s..].find(']').unwrap()+s;
+                        let sel = &fl[s..e];
+                        let script = format!("(function(){{let t=document.querySelector('{}');if(!t)return;let r=t.getBoundingClientRect();let x=r.left+r.width/2,y=r.top+r.height/2;let c=document.getElementById('at-c');if(!c){{c=document.createElement('div');c.id='at-c';c.innerHTML='<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path d=\"M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.94c.45 0 .67-.54.35-.85L6.35 2.86a.5.5 0 00-.85.35z\" fill=\"#76B900\" stroke=\"white\" stroke-width=\"1.5\"/></svg>';c.style='position:fixed;z-index:999999;pointer-events:none;transition:all 0.6s cubic-bezier(0.2,0.8,0.2,1);filter:drop-shadow(0 0 10px rgba(0,0,0,0.5))';document.body.appendChild(c);}}c.style.left=x+'px';c.style.top=y+'px';setTimeout(()=>{{t.click();}},700);}})();", sel);
+                        if let Some(p) = tv_c2.selected_page() { if let Ok(w) = p.child().downcast::<webkit::WebView>() { w.evaluate_javascript(&script,None,None,None::<&gtk::gio::Cancellable>,|_|{}); } }
+                    } break;
                 }
-                if chunk == "[DONE]" {
-                     if full_ai_response.contains("[CLICK: ") && full_ai_response.contains("]") {
-                         let start = full_ai_response.find("[CLICK: ").unwrap() + 8;
-                         let end = full_ai_response[start..].find(']').unwrap() + start;
-                         let selector = &full_ai_response[start..end];
-                         
-                         let ghost_script = format!(r#"
-                         (function() {{
-                             let target = document.querySelector('{}');
-                             if (!target) return;
-                             let rect = target.getBoundingClientRect();
-                             let targetX = rect.left + (rect.width / 2);
-                             let targetY = rect.top + (rect.height / 2);
-                             let cursor = document.getElementById('atlas-ghost-cursor');
-                             if (!cursor) {{
-                                 cursor = document.createElement('div');
-                                 cursor.id = 'atlas-ghost-cursor';
-                                 cursor.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.94c.45 0 .67-.54.35-.85L6.35 2.86a.5.5 0 00-.85.35z" fill="green" stroke="white" stroke-width="1.5"/></svg>';
-                                 cursor.style.position = 'fixed';
-                                 cursor.style.zIndex = '999999';
-                                 cursor.style.pointerEvents = 'none';
-                                 cursor.style.left = window.innerWidth + 'px';
-                                 cursor.style.top = (window.innerHeight / 2) + 'px';
-                                 cursor.style.transition = 'all 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
-                                 cursor.style.filter = 'drop-shadow(0px 4px 6px rgba(118, 185, 0, 0.5))';
-                                 document.body.appendChild(cursor);
-                                 cursor.getBoundingClientRect();
-                             }}
-                             cursor.style.left = targetX + 'px';
-                             cursor.style.top = targetY + 'px';
-                             setTimeout(() => {{
-                                 let ripple = document.createElement('div');
-                                 ripple.style.position = 'fixed';
-                                 ripple.style.left = targetX + 'px';
-                                 ripple.style.top = targetY + 'px';
-                                 ripple.style.width = '20px';
-                                 ripple.style.height = '20px';
-                                 ripple.style.borderRadius = '50%';
-                                 ripple.style.backgroundColor = 'rgba(118, 185, 0, 0.6)';
-                                 ripple.style.transform = 'translate(-50%, -50%) scale(1)';
-                                 ripple.style.transition = 'all 0.4s ease-out';
-                                 ripple.style.zIndex = '999998';
-                                 ripple.style.pointerEvents = 'none';
-                                 document.body.appendChild(ripple);
-                                 setTimeout(() => {{
-                                     ripple.style.transform = 'translate(-50%, -50%) scale(4)';
-                                     ripple.style.opacity = '0';
-                                 }}, 10);
-                                 target.click();
-                                 setTimeout(() => ripple.remove(), 400);
-                             }}, 650);
-                         }})();
-                         "#, selector);
-                         
-                         if let Some(page) = tv_agent_clone2.selected_page() {
-                             if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                                 wv.evaluate_javascript(&ghost_script, None, None, None::<&gtk::gio::Cancellable>, |_| {});
-                             }
-                         }
-                     }
-                     break;
-                }
-
-                full_ai_response.push_str(&chunk);
-                let current_text = ai_label_clone.text().to_string();
-                let new_text = if current_text == "Thinking..." {
-                    chunk
-                } else {
-                    current_text + &chunk
-                };
-                ai_label_clone.set_label(&new_text);
-                
-                let adj2 = chs_clone.vadjustment();
-                adj2.set_value(adj2.upper());
+                fl.push_str(&ck); let tx_val = al_c.text().to_string(); let new_label = if tx_val=="Thinking..." { ck } else { tx_val + &ck }; al_c.set_label(&new_label);
+                let a = chs_c.vadjustment(); a.set_value(a.upper());
             }
         });
-
-        let sender_clone = sender.clone();
-        let curr_settings = app_settings_ai.borrow().clone();
-        
+        let tx_c = tx.clone(); let set = as_ai.borrow().clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                if curr_settings.api_key.is_empty() {
-                    let _ = sender_clone.send("Please configure your API key in Settings (⚙️).".to_string()).await;
-                    let _ = sender_clone.send("[DONE]".to_string()).await;
-                    return;
-                }
-
-                let mut config = OpenAIConfig::new().with_api_key(&curr_settings.api_key);
-                if curr_settings.provider == "Nvidia" {
-                    config = config.with_api_base("https://integrate.api.nvidia.com/v1");
-                } else if curr_settings.provider == "Gemini" {
-                    config = config.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");
-                }
-                let client = Client::with_config(config);
-                
-                let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
-                system_prompt.push_str("If the user asks you to click a button or a link, respond with ONLY the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
-                if let Some(ctx) = context_opt {
-                    if !ctx.url.starts_with("atlas://") {
-                        system_prompt.push_str(&format!("The user is viewing website '{}' at {}. ", ctx.title, ctx.url));
-                        if !ctx.highlighted_text.is_empty() {
-                             system_prompt.push_str(&format!("User highlighted: '{}'. ", ctx.highlighted_text));
-                        }
-                        system_prompt.push_str(&format!("Page content:\n{}", ctx.main_content));
-                    }
-                }
-                
-                let request = CreateChatCompletionRequestArgs::default()
-                    .model(&curr_settings.model)
-                    .messages([
-                        ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build().unwrap().into(),
-                        ChatCompletionRequestUserMessageArgs::default().content(user_prompt).build().unwrap().into(),
-                    ])
-                    .build()
-                    .unwrap();
-
-                match client.chat().create_stream(request).await {
-                    Ok(mut stream) => {
-                        while let Some(response) = stream.next().await {
-                            match response {
-                                Ok(resp) => {
-                                    for choice in resp.choices {
-                                        if let Some(content) = choice.delta.content {
-                                            let _ = sender_clone.send(content).await;
-                                        }
-                                    }
-                                }
-                                Err(e) => { let _ = sender_clone.send(format!("[ERROR_STREAM] {:?}", e)).await; }
-                            }
-                        }
-                        let _ = sender_clone.send("[DONE]".to_string()).await;
-                    },
-                    Err(e) => { let _ = sender_clone.send(format!("[ERROR] {:?}", e)).await; }
+                if set.api_key.is_empty() { let _=tx_c.send("Set API Key in ⚙️.".into()).await; let _=tx_c.send("[DONE]".into()).await; return; }
+                let mut cfg = OpenAIConfig::new().with_api_key(&set.api_key).with_api_base(&set.base_url);
+                if set.provider=="Nvidia"{cfg=cfg.with_api_base("https://integrate.api.nvidia.com/v1");}
+                else if set.provider=="Gemini"{cfg=cfg.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");}
+                let client = Client::with_config(cfg);
+                let mut sys = String::from("You are Atlas AI. If asked to click, respond with ONLY [CLICK: selector]. ");
+                if let Some(c) = ctx { if !c.url.contains("atlas://") { sys.push_str(&format!("URL: {}. Page: {}. Context: {}", c.url, c.title, c.main_content)); } }
+                let req = CreateChatCompletionRequestArgs::default().model(&set.model).messages([ChatCompletionRequestSystemMessageArgs::default().content(sys).build().unwrap().into(), ChatCompletionRequestUserMessageArgs::default().content(pmt).build().unwrap().into()]).build().unwrap();
+                match client.chat().create_stream(req).await {
+                    Ok(mut s) => { while let Some(Ok(r)) = s.next().await { for ch in r.choices { if let Some(con) = ch.delta.content { let _=tx_c.send(con).await; } } } let _=tx_c.send("[DONE]".into()).await; }
+                    Err(e) => { let _=tx_c.send(format!("[ERROR] {:?}", e)).await; }
                 }
             });
         });
     });
-
-    window.set_content(Some(&split_view));
-    window.present();
+    win.set_content(Some(&split)); win.present();
 }
