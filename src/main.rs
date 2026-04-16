@@ -77,72 +77,91 @@ const NATIVE_HOMEPAGE: &str = r##"
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #242424;
+            background-color: #1e1e1e;
             color: #ffffff;
             font-family: system-ui, -apple-system, sans-serif;
+            overflow: hidden;
         }
         .container {
             text-align: center;
-            animation: fadein 1s ease-in;
+            animation: fadein 0.8s ease-out;
         }
         @keyframes fadein {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .logo {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 24px auto;
+            filter: drop-shadow(0 0 20px rgba(118, 185, 0, 0.5));
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-15px); }
         }
         h1 {
-            font-size: 2.5rem;
-            font-weight: 600;
-            margin-bottom: 8px;
-            background: linear-gradient(90deg, #76B900, #3584e4);
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 4px;
+            letter-spacing: -1px;
+            background: linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         p {
-            font-size: 1.1rem;
-            color: #a0a0a0;
-            margin-bottom: 32px;
+            font-size: 1.2rem;
+            color: #76B900;
+            margin-bottom: 40px;
+            font-weight: 500;
+            opacity: 0.9;
         }
         .search-box {
             display: flex;
             width: 100%;
-            max-width: 600px;
-            background: #303030;
-            border-radius: 24px;
-            padding: 4px 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            border: 1px solid #404040;
-            transition: border-color 0.2s;
+            width: 650px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 30px;
+            padding: 6px 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .search-box:focus-within {
+            background: rgba(255, 255, 255, 0.08);
             border-color: #76B900;
+            box-shadow: 0 0 30px rgba(118, 185, 0, 0.2);
+            transform: scale(1.02);
         }
         input {
             flex-grow: 1;
             background: transparent;
             border: none;
-            padding: 12px 16px;
-            font-size: 1.1rem;
+            padding: 14px 20px;
+            font-size: 1.2rem;
             color: white;
             outline: none;
         }
         input::placeholder {
-            color: #808080;
+            color: rgba(255, 255, 255, 0.3);
         }
-        .logo {
-            width: 90px;
-            height: 90px;
-            margin: 0 auto 24px auto;
-            filter: drop-shadow(0 0 16px rgba(118, 185, 0, 0.4));
-            animation: float 4s ease-in-out infinite;
-        }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
+        .badge {
+            background: #3584e4;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-bottom: 20px;
+            display: inline-block;
+            font-weight: bold;
+            text-transform: uppercase;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="badge">Experimental AI Browser</div>
         <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
             <defs>
                 <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -163,10 +182,10 @@ const NATIVE_HOMEPAGE: &str = r##"
             <ellipse cx="35" cy="88" rx="8" ry="4" fill="#FFA500"/>
             <ellipse cx="65" cy="88" rx="8" ry="4" fill="#FFA500"/>
         </svg>
-        <h1>Linux Atlas</h1>
-        <p>What do you want to search?</p>
+        <h1>Tux Search</h1>
+        <p>Your Private Linux Portal</p>
         <form class="search-box" id="search-form">
-            <input type="text" id="search-input" placeholder="Search the web or enter a URL..." autofocus autocomplete="off">
+            <input type="text" id="search-input" placeholder="Search with DuckDuckGo or enter URL..." autofocus autocomplete="off">
         </form>
     </div>
     <script>
@@ -180,7 +199,7 @@ const NATIVE_HOMEPAGE: &str = r##"
             } else if (query.includes('.') && !query.includes(' ')) {
                 uri = 'https://' + query;
             } else {
-                uri = 'https://google.com/search?q=' + encodeURIComponent(query);
+                uri = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
             }
             window.location.href = uri;
         });
@@ -193,6 +212,7 @@ const NATIVE_HOMEPAGE: &str = r##"
 async fn main() {
     dotenv::dotenv().ok();
     
+    // Nuclear fix for Fedora TLS bugs
     unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:-VERS-TLS1.3"); }
     
     let app = adw::Application::builder()
@@ -400,7 +420,7 @@ fn build_ui(app: &adw::Application) {
     content_manager.register_script_message_handler("atlas_bridge", None);
 
     let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (Wayland; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
         .enable_webaudio(true)
         .enable_webgl(true)
         .enable_media_stream(true)
@@ -519,7 +539,7 @@ fn build_ui(app: &adw::Application) {
         } else if text.contains('.') && !text.contains(' ') {
             format!("https://{}", text)
         } else {
-            format!("https://google.com/search?q={}", text)
+            format!("https://duckduckgo.com/?q={}", text)
         };
         
         if let Some(page) = tv_clone.selected_page() {
@@ -618,7 +638,6 @@ fn build_ui(app: &adw::Application) {
     let as_clone_btn = app_settings.clone();
     let win_clone = window.clone();
     settings_btn.connect_clicked(move |_| {
-        // Use an adw::Window instead of PreferencesWindow to have explicit control over buttons
         let pref_win = adw::Window::builder()
             .title("Atlas AI Configuration")
             .default_width(450)
@@ -648,9 +667,8 @@ fn build_ui(app: &adw::Application) {
         
         let model_row = adw::ComboRow::builder().title("Model").build();
         
-        // Initial setup for the model list based on the currently saved provider
         let models_nvidia = ["meta/llama-3.1-405b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct"];
-        let models_gemini = ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"];
+        let models_gemini = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"];
         let models_openai = ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"];
         
         let initial_list = match current_prov.as_str() {
@@ -660,7 +678,6 @@ fn build_ui(app: &adw::Application) {
         };
         model_row.set_model(Some(&initial_list));
         
-        // Attempt to select the currently saved model
         let current_mod = as_clone_btn.borrow().model.clone();
         let current_array = match current_prov.as_str() {
             "Gemini" => models_gemini.to_vec(),
@@ -671,13 +688,18 @@ fn build_ui(app: &adw::Application) {
             model_row.set_selected(m_idx as u32);
         }
         
-        // We set the provider selected index last, so the UI updates
         provider_row.set_selected(idx);
         
         let key_row = adw::ActionRow::builder()
             .title("API Key")
             .build();
-        let key_entry = gtk::PasswordEntry::builder().text(&as_clone_btn.borrow().api_key).show_peek_icon(true).hexpand(true).valign(gtk::Align::Center).build(); key_row.add_suffix(&key_entry);
+        let key_entry = gtk::PasswordEntry::builder()
+            .text(&as_clone_btn.borrow().api_key)
+            .valign(gtk::Align::Center)
+            .hexpand(true)
+            .show_peek_icon(true)
+            .build();
+        key_row.add_suffix(&key_entry);
             
         group.add(&provider_row);
         group.add(&model_row);
@@ -693,18 +715,17 @@ fn build_ui(app: &adw::Application) {
             .margin_end(16)
             .build();
             
-        let layout_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        layout_box.append(&page);
-        layout_box.append(&apply_btn);
+        let box_layout = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        box_layout.append(&page);
+        box_layout.append(&apply_btn);
         
-        toolbar_view.append(&layout_box);
+        toolbar_view.append(&box_layout);
         pref_win.set_content(Some(&toolbar_view));
         
-        // Update model dropdown when provider changes
         let mr_update = model_row.clone();
         provider_row.connect_selected_notify(move |row| {
             let list = match row.selected() {
-                1 => gtk::StringList::new(&["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]),
+                1 => gtk::StringList::new(&["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]),
                 2 => gtk::StringList::new(&["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"]),
                 _ => gtk::StringList::new(&["meta/llama-3.1-405b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct"]),
             };
@@ -816,90 +837,77 @@ fn build_ui(app: &adw::Application) {
         let chs_clone = chat_history_scroll.clone();
         
         gtk::glib::spawn_future_local(async move {
+            let mut full_ai_response = String::new();
             while let Ok(chunk) = receiver.recv().await {
                 if chunk.starts_with("[ERROR") {
                      ai_label_clone.set_label(&format!("API Error: {}", chunk));
                      break;
                 }
                 if chunk == "[DONE]" {
-                     break;
-                }
-                
-                if chunk.starts_with("[CLICK: ") && chunk.ends_with("]") {
-                     let selector = chunk.trim_start_matches("[CLICK: ").trim_end_matches("]");
-                     
-                     let ghost_script = format!(r#"
-                     (function() {{
-                         let target = document.querySelector('{}');
-                         if (!target) return;
+                     // Check if there is a command in the full response after it finishes
+                     if full_ai_response.contains("[CLICK: ") && full_ai_response.contains("]") {
+                         let start = full_ai_response.find("[CLICK: ").unwrap() + 8;
+                         let end = full_ai_response[start..].find(']').unwrap() + start;
+                         let selector = &full_ai_response[start..end];
                          
-                         let rect = target.getBoundingClientRect();
-                         let targetX = rect.left + (rect.width / 2);
-                         let targetY = rect.top + (rect.height / 2);
-                         
-                         let cursor = document.getElementById('atlas-ghost-cursor');
-                         if (!cursor) {{
-                             cursor = document.createElement('div');
-                             cursor.id = 'atlas-ghost-cursor';
-                             cursor.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.94c.45 0 .67-.54.35-.85L6.35 2.86a.5.5 0 00-.85.35z" fill="green" stroke="white" stroke-width="1.5"/></svg>';
-                             cursor.style.position = 'fixed';
-                             cursor.style.zIndex = '999999';
-                             cursor.style.pointerEvents = 'none';
-                             cursor.style.left = window.innerWidth + 'px';
-                             cursor.style.top = (window.innerHeight / 2) + 'px';
-                             cursor.style.transition = 'all 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
-                             cursor.style.filter = 'drop-shadow(0px 4px 6px rgba(118, 185, 0, 0.5))';
-                             document.body.appendChild(cursor);
-                             
-                             cursor.getBoundingClientRect();
-                         }}
-                         
-                         cursor.style.left = targetX + 'px';
-                         cursor.style.top = targetY + 'px';
-                         
-                         setTimeout(() => {{
-                             let ripple = document.createElement('div');
-                             ripple.style.position = 'fixed';
-                             ripple.style.left = targetX + 'px';
-                             ripple.style.top = targetY + 'px';
-                             ripple.style.width = '20px';
-                             ripple.style.height = '20px';
-                             ripple.style.borderRadius = '50%';
-                             ripple.style.backgroundColor = 'rgba(118, 185, 0, 0.6)';
-                             ripple.style.transform = 'translate(-50%, -50%) scale(1)';
-                             ripple.style.transition = 'all 0.4s ease-out';
-                             ripple.style.zIndex = '999998';
-                             ripple.style.pointerEvents = 'none';
-                             document.body.appendChild(ripple);
-                             
+                         let ghost_script = format!(r#"
+                         (function() {{
+                             let target = document.querySelector('{}');
+                             if (!target) return;
+                             let rect = target.getBoundingClientRect();
+                             let targetX = rect.left + (rect.width / 2);
+                             let targetY = rect.top + (rect.height / 2);
+                             let cursor = document.getElementById('atlas-ghost-cursor');
+                             if (!cursor) {{
+                                 cursor = document.createElement('div');
+                                 cursor.id = 'atlas-ghost-cursor';
+                                 cursor.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.94c.45 0 .67-.54.35-.85L6.35 2.86a.5.5 0 00-.85.35z" fill="green" stroke="white" stroke-width="1.5"/></svg>';
+                                 cursor.style.position = 'fixed';
+                                 cursor.style.zIndex = '999999';
+                                 cursor.style.pointerEvents = 'none';
+                                 cursor.style.left = window.innerWidth + 'px';
+                                 cursor.style.top = (window.innerHeight / 2) + 'px';
+                                 cursor.style.transition = 'all 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+                                 cursor.style.filter = 'drop-shadow(0px 4px 6px rgba(118, 185, 0, 0.5))';
+                                 document.body.appendChild(cursor);
+                                 cursor.getBoundingClientRect();
+                             }}
+                             cursor.style.left = targetX + 'px';
+                             cursor.style.top = targetY + 'px';
                              setTimeout(() => {{
-                                 ripple.style.transform = 'translate(-50%, -50%) scale(4)';
-                                 ripple.style.opacity = '0';
-                             }}, 10);
-                             
-                             target.click();
-                             
-                             setTimeout(() => ripple.remove(), 400);
-                         }}, 650);
-                     }})();
-                     "#, selector);
-                     
-                     if let Some(page) = tv_agent_clone2.selected_page() {
-                         if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
-                             wv.evaluate_javascript(
-                                 &ghost_script,
-                                 None,
-                                 None,
-                                 None::<&gtk::gio::Cancellable>,
-                                 |_| {}
-                             );
+                                 let ripple = document.createElement('div');
+                                 ripple.style.position = 'fixed';
+                                 ripple.style.left = targetX + 'px';
+                                 ripple.style.top = targetY + 'px';
+                                 ripple.style.width = '20px';
+                                 ripple.style.height = '20px';
+                                 ripple.style.borderRadius = '50%';
+                                 ripple.style.backgroundColor = 'rgba(118, 185, 0, 0.6)';
+                                 ripple.style.transform = 'translate(-50%, -50%) scale(1)';
+                                 ripple.style.transition = 'all 0.4s ease-out';
+                                 ripple.style.zIndex = '999998';
+                                 ripple.style.pointerEvents = 'none';
+                                 document.body.appendChild(ripple);
+                                 setTimeout(() => {{
+                                     ripple.style.transform = 'translate(-50%, -50%) scale(4)';
+                                     ripple.style.opacity = '0';
+                                 }}, 10);
+                                 target.click();
+                                 setTimeout(() => ripple.remove(), 400);
+                             }}, 650);
+                         }})();
+                         "#, selector);
+                         
+                         if let Some(page) = tv_agent_clone2.selected_page() {
+                             if let Ok(wv) = page.child().downcast::<webkit::WebView>() {
+                                 wv.evaluate_javascript(&ghost_script, None, None, None::<&gtk::gio::Cancellable>, |_| {});
+                             }
                          }
                      }
-                     
-                     ai_label_clone.set_label(&format!("I clicked the element: {}", selector));
-                     continue;
+                     break;
                 }
 
+                full_ai_response.push_str(&chunk);
                 let current_text = ai_label_clone.text().to_string();
                 let new_text = if current_text == "Thinking..." {
                     chunk
@@ -908,7 +916,6 @@ fn build_ui(app: &adw::Application) {
                 };
                 ai_label_clone.set_label(&new_text);
                 
-                // Auto-scroll while generating stream
                 let adj2 = chs_clone.vadjustment();
                 adj2.set_value(adj2.upper());
             }
@@ -927,45 +934,30 @@ fn build_ui(app: &adw::Application) {
                 }
 
                 let mut config = OpenAIConfig::new().with_api_key(&curr_settings.api_key);
-                
                 if curr_settings.provider == "Nvidia" {
                     config = config.with_api_base("https://integrate.api.nvidia.com/v1");
                 } else if curr_settings.provider == "Gemini" {
                     config = config.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");
                 }
-
                 let client = Client::with_config(config);
                 
                 let mut system_prompt = String::from("You are Atlas, an AI integrated deeply into a web browser. ");
-                system_prompt.push_str("If the user asks you to click a button or a link, respond ONLY with the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
+                system_prompt.push_str("If the user asks you to click a button or a link, respond with ONLY the exact CSS selector wrapped in the tag [CLICK: selector]. For example, if they want to click a button with id 'submit', respond with exactly: [CLICK: #submit]. ");
                 if let Some(ctx) = context_opt {
                     if !ctx.url.starts_with("atlas://") {
-                        system_prompt.push_str(&format!(
-                            "The user is viewing the website '{}' at {}. ",
-                            ctx.title, ctx.url
-                        ));
+                        system_prompt.push_str(&format!("The user is viewing website '{}' at {}. ", ctx.title, ctx.url));
                         if !ctx.highlighted_text.is_empty() {
-                             system_prompt.push_str(&format!(
-                                 "The user highlighted this text: '{}'. Focus your answer on this. ",
-                                 ctx.highlighted_text
-                             ));
+                             system_prompt.push_str(&format!("User highlighted: '{}'. ", ctx.highlighted_text));
                         }
-                        system_prompt.push_str(&format!(
-                            "\nHere is the page content:\n{}",
-                            ctx.main_content
-                        ));
+                        system_prompt.push_str(&format!("Page content:\n{}", ctx.main_content));
                     }
                 }
                 
                 let request = CreateChatCompletionRequestArgs::default()
                     .model(&curr_settings.model)
                     .messages([
-                        ChatCompletionRequestSystemMessageArgs::default()
-                            .content(system_prompt)
-                            .build().unwrap().into(),
-                        ChatCompletionRequestUserMessageArgs::default()
-                            .content(user_prompt)
-                            .build().unwrap().into(),
+                        ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build().unwrap().into(),
+                        ChatCompletionRequestUserMessageArgs::default().content(user_prompt).build().unwrap().into(),
                     ])
                     .build()
                     .unwrap();
@@ -981,16 +973,12 @@ fn build_ui(app: &adw::Application) {
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    let _ = sender_clone.send(format!("[ERROR_STREAM] {:?}", e)).await;
-                                }
+                                Err(e) => { let _ = sender_clone.send(format!("[ERROR_STREAM] {:?}", e)).await; }
                             }
                         }
                         let _ = sender_clone.send("[DONE]".to_string()).await;
                     },
-                    Err(e) => {
-                        let _ = sender_clone.send(format!("[ERROR] {:?}", e)).await;
-                    }
+                    Err(e) => { let _ = sender_clone.send(format!("[ERROR] {:?}", e)).await; }
                 }
             });
         });
