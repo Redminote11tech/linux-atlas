@@ -77,91 +77,89 @@ const NATIVE_HOMEPAGE: &str = r##"
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #1e1e1e;
+            background-color: #1a1a1a;
             color: #ffffff;
-            font-family: system-ui, -apple-system, sans-serif;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
             overflow: hidden;
         }
         .container {
             text-align: center;
-            animation: fadein 0.8s ease-out;
+            width: 100%;
+            max-width: 800px;
+            animation: slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
-        @keyframes fadein {
-            from { opacity: 0; transform: scale(0.95); }
-            to { opacity: 1; transform: scale(1); }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         .logo {
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 24px auto;
-            filter: drop-shadow(0 0 20px rgba(118, 185, 0, 0.5));
-            animation: float 3s ease-in-out infinite;
+            width: 140px;
+            height: 140px;
+            margin-bottom: 20px;
+            filter: drop-shadow(0 0 30px rgba(118, 185, 0, 0.3));
+            animation: float 4s ease-in-out infinite;
         }
         @keyframes float {
             0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-15px); }
+            50% { transform: translateY(-12px); }
         }
         h1 {
-            font-size: 3rem;
-            font-weight: 800;
-            margin-bottom: 4px;
-            letter-spacing: -1px;
-            background: linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%);
+            font-size: 3.5rem;
+            font-weight: 900;
+            margin: 0 0 10px 0;
+            letter-spacing: -2px;
+            background: linear-gradient(135deg, #ffffff 30%, #76B900 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        p {
-            font-size: 1.2rem;
-            color: #76B900;
+        .tagline {
+            font-size: 1.1rem;
+            color: #888;
             margin-bottom: 40px;
-            font-weight: 500;
-            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 4px;
         }
         .search-box {
-            display: flex;
-            width: 100%;
-            width: 650px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 30px;
-            padding: 6px 10px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .search-box:focus-within {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: #76B900;
-            box-shadow: 0 0 30px rgba(118, 185, 0, 0.2);
-            transform: scale(1.02);
+            position: relative;
+            width: 600px;
+            margin: 0 auto;
         }
         input {
-            flex-grow: 1;
-            background: transparent;
-            border: none;
-            padding: 14px 20px;
-            font-size: 1.2rem;
+            width: 100%;
+            background: #252525;
+            border: 2px solid #333;
+            border-radius: 16px;
+            padding: 18px 25px;
+            font-size: 1.25rem;
             color: white;
             outline: none;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #76B900;
+            background: #2a2a2a;
+            box-shadow: 0 0 40px rgba(118, 185, 0, 0.15);
         }
         input::placeholder {
-            color: rgba(255, 255, 255, 0.3);
+            color: #555;
         }
         .badge {
-            background: #3584e4;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            margin-bottom: 20px;
+            background: rgba(118, 185, 0, 0.1);
+            color: #76B900;
+            border: 1px solid rgba(118, 185, 0, 0.3);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            margin-bottom: 24px;
             display: inline-block;
-            font-weight: bold;
-            text-transform: uppercase;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="badge">Experimental AI Browser</div>
+        <div class="badge">ATLAS AI ENGINE</div>
         <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
             <defs>
                 <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -183,12 +181,15 @@ const NATIVE_HOMEPAGE: &str = r##"
             <ellipse cx="65" cy="88" rx="8" ry="4" fill="#FFA500"/>
         </svg>
         <h1>Tux Search</h1>
-        <p>Your Private Linux Portal</p>
-        <form class="search-box" id="search-form">
-            <input type="text" id="search-input" placeholder="Search with DuckDuckGo or enter URL..." autofocus autocomplete="off">
+        <div class="tagline">The Web, Without the Junk.</div>
+        <form id="search-form" class="search-box">
+            <input type="text" id="search-input" placeholder="Search Google or enter a website..." autofocus autocomplete="off">
         </form>
     </div>
     <script>
+        // Force focus on load
+        window.onload = () => document.getElementById('search-input').focus();
+        
         document.getElementById('search-form').addEventListener('submit', function(e) {
             e.preventDefault();
             let query = document.getElementById('search-input').value.trim();
@@ -199,7 +200,7 @@ const NATIVE_HOMEPAGE: &str = r##"
             } else if (query.includes('.') && !query.includes(' ')) {
                 uri = 'https://' + query;
             } else {
-                uri = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
+                uri = 'https://www.google.com/search?q=' + encodeURIComponent(query);
             }
             window.location.href = uri;
         });
@@ -419,8 +420,9 @@ fn build_ui(app: &adw::Application) {
     content_manager.add_script(&extraction_script);
     content_manager.register_script_message_handler("atlas_bridge", None);
 
+    // THE FIREFOX METHOD: Using a generic Firefox on Linux User Agent to avoid Google's "Chrome bot" detection
     let settings = webkit::Settings::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+        .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0")
         .enable_webaudio(true)
         .enable_webgl(true)
         .enable_media_stream(true)
@@ -539,7 +541,7 @@ fn build_ui(app: &adw::Application) {
         } else if text.contains('.') && !text.contains(' ') {
             format!("https://{}", text)
         } else {
-            format!("https://duckduckgo.com/?q={}", text)
+            format!("https://www.google.com/search?q={}", text)
         };
         
         if let Some(page) = tv_clone.selected_page() {
@@ -592,7 +594,6 @@ fn build_ui(app: &adw::Application) {
     title_label.add_css_class("title");
     chat_header.set_title_widget(Some(&title_label));
     
-    // Settings Button
     let settings_btn = gtk::Button::from_icon_name("emblem-system-symbolic");
     chat_header.pack_end(&settings_btn);
 
