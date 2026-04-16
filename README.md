@@ -13,9 +13,12 @@ Built in **Rust** using **WebKitGTK** and **libadwaita**.
    On Fedora: `sudo dnf install -y webkitgtk6.0-devel javascriptcoregtk6.0-devel`
 2. **API Key:** Create a `.env` file in the root directory and add your Nvidia API key:
    `NVIDIA_API_KEY=nvapi-YOUR_KEY_HERE`
-3. **Run:** Execute `cargo run` to start the application.
+3. **Build:** Execute `cargo build`
+
+4. **Run:** Execute `cargo run` to start the application.
 
 ## Credits & License
 This project is licensed under the **GPL V3**. 
 Concept inspired by OpenAI's "ChatGPT Atlas". 
 Built by redminote11tech
+Credits to all Libraries used
