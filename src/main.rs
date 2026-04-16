@@ -183,7 +183,7 @@ const NATIVE_HOMEPAGE: &str = r##"
         <h1>Tux Search</h1>
         <div class="tagline">The Web, Without the Junk.</div>
         <form id="search-form" class="search-box">
-            <input type="text" id="search-input" placeholder="Search Google or enter a website..." autofocus autocomplete="off">
+            <input type="text" id="search-input" placeholder="Search freely or enter a website..." autofocus autocomplete="off">
         </form>
     </div>
     <script>
@@ -200,7 +200,7 @@ const NATIVE_HOMEPAGE: &str = r##"
             } else if (query.includes('.') && !query.includes(' ')) {
                 uri = 'https://' + query;
             } else {
-                uri = 'https://www.google.com/search?q=' + encodeURIComponent(query);
+                uri = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
             }
             window.location.href = uri;
         });
@@ -212,8 +212,6 @@ const NATIVE_HOMEPAGE: &str = r##"
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    
-    // Nuclear fix for Fedora TLS bugs
     unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:-VERS-TLS1.3"); }
     
     let app = adw::Application::builder()
@@ -420,7 +418,6 @@ fn build_ui(app: &adw::Application) {
     content_manager.add_script(&extraction_script);
     content_manager.register_script_message_handler("atlas_bridge", None);
 
-    // THE FIREFOX METHOD: Using a generic Firefox on Linux User Agent to avoid Google's "Chrome bot" detection
     let settings = webkit::Settings::builder()
         .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0")
         .enable_webaudio(true)
@@ -541,7 +538,7 @@ fn build_ui(app: &adw::Application) {
         } else if text.contains('.') && !text.contains(' ') {
             format!("https://{}", text)
         } else {
-            format!("https://www.google.com/search?q={}", text)
+            format!("https://duckduckgo.com/?q={}", text)
         };
         
         if let Some(page) = tv_clone.selected_page() {
