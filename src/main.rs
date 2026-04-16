@@ -121,28 +121,36 @@ const NATIVE_HOMEPAGE: &str = r##"
         }
         .search-box {
             position: relative;
-            width: 600px;
-            margin: 0 auto;
-        }
-        input {
             width: 100%;
-            background: #252525;
-            border: 2px solid #333;
-            border-radius: 16px;
-            padding: 18px 25px;
-            font-size: 1.25rem;
-            color: white;
-            outline: none;
-            transition: all 0.3s ease;
+            max-width: 650px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 30px;
+            padding: 6px 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
             box-sizing: border-box;
         }
-        input:focus {
+        .search-box:focus-within {
+            background: rgba(255, 255, 255, 0.08);
             border-color: #76B900;
-            background: #2a2a2a;
-            box-shadow: 0 0 40px rgba(118, 185, 0, 0.15);
+            box-shadow: 0 0 30px rgba(118, 185, 0, 0.2);
+            transform: scale(1.02);
+        }
+        input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            padding: 14px 20px;
+            font-size: 1.2rem;
+            color: white;
+            outline: none;
+            width: 100%;
         }
         input::placeholder {
-            color: #555;
+            color: rgba(255, 255, 255, 0.3);
         }
         .badge {
             background: rgba(118, 185, 0, 0.1);
@@ -188,7 +196,9 @@ const NATIVE_HOMEPAGE: &str = r##"
     </div>
     <script>
         // Force focus on load
-        window.onload = () => document.getElementById('search-input').focus();
+        window.onload = () => {
+            document.getElementById('search-input').focus();
+        };
         
         document.getElementById('search-form').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -200,7 +210,7 @@ const NATIVE_HOMEPAGE: &str = r##"
             } else if (query.includes('.') && !query.includes(' ')) {
                 uri = 'https://' + query;
             } else {
-                uri = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
+                uri = 'https://www.google.com/search?q=' + encodeURIComponent(query);
             }
             window.location.href = uri;
         });
@@ -418,6 +428,30 @@ fn build_ui(app: &adw::Application) {
     content_manager.add_script(&extraction_script);
     content_manager.register_script_message_handler("atlas_bridge", None);
 
+    // THE NAG ZAPPER: Injected CSS to hide "Download Browser" banners and DuckDuckGo promos
+    let nag_zapper_css = webkit::UserStyleSheet::new(
+        "
+        /* DuckDuckGo Browser Promos */
+        div[class*='extension-promo'], 
+        div[id*='extension-promo'], 
+        div[class*='download-browser-promo'],
+        .ddg-extension-hide,
+        #ddg-extension-promos,
+        .onboarding-ed-container {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        ",
+        webkit::UserContentInjectedFrames::AllFrames,
+        webkit::UserStyleLevel::User,
+        &[],
+        &[],
+    );
+    content_manager.add_style_sheet(&nag_zapper_css);
+
     let settings = webkit::Settings::builder()
         .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0")
         .enable_webaudio(true)
@@ -538,7 +572,7 @@ fn build_ui(app: &adw::Application) {
         } else if text.contains('.') && !text.contains(' ') {
             format!("https://{}", text)
         } else {
-            format!("https://duckduckgo.com/?q={}", text)
+            format!("https://www.google.com/search?q={}", text)
         };
         
         if let Some(page) = tv_clone.selected_page() {
