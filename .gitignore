@@ -21,3 +21,4 @@ target/
 
 # Environment variables
 .env
+atlas_settings.json
