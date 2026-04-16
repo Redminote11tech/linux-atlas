@@ -18,4 +18,4 @@ Built in **Rust** using **WebKitGTK** and **libadwaita**.
 ## Credits & License
 This project is licensed under the **GPL V3**. 
 Concept inspired by OpenAI's "ChatGPT Atlas". 
-Built by Jade and Gemini CLI. 
+Built by redminote11tech
