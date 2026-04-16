@@ -122,35 +122,28 @@ const NATIVE_HOMEPAGE: &str = r##"
         .search-box {
             position: relative;
             width: 100%;
-            max-width: 650px;
+            max-width: 600px;
             margin: 0 auto;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 30px;
-            padding: 6px 10px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex;
-            box-sizing: border-box;
-        }
-        .search-box:focus-within {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: #76B900;
-            box-shadow: 0 0 30px rgba(118, 185, 0, 0.2);
-            transform: scale(1.02);
         }
         input {
-            flex-grow: 1;
-            background: transparent;
-            border: none;
-            padding: 14px 20px;
-            font-size: 1.2rem;
+            width: 100%;
+            background: #252525;
+            border: 2px solid #333;
+            border-radius: 16px;
+            padding: 18px 25px;
+            font-size: 1.25rem;
             color: white;
             outline: none;
-            width: 100%;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #76B900;
+            background: #2a2a2a;
+            box-shadow: 0 0 40px rgba(118, 185, 0, 0.15);
         }
         input::placeholder {
-            color: rgba(255, 255, 255, 0.3);
+            color: #555;
         }
         .badge {
             background: rgba(118, 185, 0, 0.1);
@@ -222,6 +215,8 @@ const NATIVE_HOMEPAGE: &str = r##"
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
+    
+    // Disable TLS 1.3 completely as a last resort workaround for the GnuTLS bug on Fedora 43
     unsafe { std::env::set_var("G_TLS_GNUTLS_PRIORITY", "@SYSTEM:-VERS-TLS1.3"); }
     
     let app = adw::Application::builder()
@@ -428,30 +423,7 @@ fn build_ui(app: &adw::Application) {
     content_manager.add_script(&extraction_script);
     content_manager.register_script_message_handler("atlas_bridge", None);
 
-    // THE NAG ZAPPER: Injected CSS to hide "Download Browser" banners and DuckDuckGo promos
-    let nag_zapper_css = webkit::UserStyleSheet::new(
-        "
-        /* DuckDuckGo Browser Promos */
-        div[class*='extension-promo'], 
-        div[id*='extension-promo'], 
-        div[class*='download-browser-promo'],
-        .ddg-extension-hide,
-        #ddg-extension-promos,
-        .onboarding-ed-container {
-            display: none !important;
-            visibility: hidden !important;
-            height: 0 !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-        }
-        ",
-        webkit::UserContentInjectedFrames::AllFrames,
-        webkit::UserStyleLevel::User,
-        &[],
-        &[],
-    );
-    content_manager.add_style_sheet(&nag_zapper_css);
-
+    // THE FIREFOX METHOD: Using a generic Firefox on Linux User Agent to avoid Google's "Chrome bot" detection
     let settings = webkit::Settings::builder()
         .user_agent("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0")
         .enable_webaudio(true)
@@ -698,27 +670,8 @@ fn build_ui(app: &adw::Application) {
         };
         
         let model_row = adw::ComboRow::builder().title("Model").build();
-        
-        let models_nvidia = ["meta/llama-3.1-405b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct"];
-        let models_gemini = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"];
-        let models_openai = ["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"];
-        
-        let initial_list = match current_prov.as_str() {
-            "Gemini" => gtk::StringList::new(&models_gemini),
-            "OpenAI" => gtk::StringList::new(&models_openai),
-            _ => gtk::StringList::new(&models_nvidia),
-        };
-        model_row.set_model(Some(&initial_list));
-        
-        let current_mod = as_clone_btn.borrow().model.clone();
-        let current_array = match current_prov.as_str() {
-            "Gemini" => models_gemini.to_vec(),
-            "OpenAI" => models_openai.to_vec(),
-            _ => models_nvidia.to_vec(),
-        };
-        if let Some(m_idx) = current_array.iter().position(|&x| x == current_mod) {
-            model_row.set_selected(m_idx as u32);
-        }
+        let model_list = gtk::StringList::new(&[as_clone_btn.borrow().model.as_str()]);
+        model_row.set_model(Some(&model_list));
         
         provider_row.set_selected(idx);
         
@@ -738,10 +691,18 @@ fn build_ui(app: &adw::Application) {
         group.add(&key_row);
         page.add(&group);
         
+        let sync_btn = gtk::Button::builder()
+            .label("Sync Models from Endpoint")
+            .css_classes(["suggested-action"])
+            .margin_start(16)
+            .margin_end(16)
+            .margin_top(8)
+            .build();
+            
         let apply_btn = gtk::Button::builder()
             .label("Apply Settings")
             .css_classes(["suggested-action"])
-            .margin_top(16)
+            .margin_top(8)
             .margin_bottom(16)
             .margin_start(16)
             .margin_end(16)
@@ -749,19 +710,57 @@ fn build_ui(app: &adw::Application) {
             
         let box_layout = gtk::Box::new(gtk::Orientation::Vertical, 0);
         box_layout.append(&page);
+        box_layout.append(&sync_btn);
         box_layout.append(&apply_btn);
         
         toolbar_view.append(&box_layout);
         pref_win.set_content(Some(&toolbar_view));
         
-        let mr_update = model_row.clone();
-        provider_row.connect_selected_notify(move |row| {
-            let list = match row.selected() {
-                1 => gtk::StringList::new(&["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]),
-                2 => gtk::StringList::new(&["gpt-4o", "gpt-4o-mini", "o1-mini", "o3-mini"]),
-                _ => gtk::StringList::new(&["meta/llama-3.1-405b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct"]),
-            };
-            mr_update.set_model(Some(&list));
+        let pr_sync = provider_row.clone();
+        let kr_sync = key_entry.clone();
+        let mr_sync = model_row.clone();
+        let sb_sync = sync_btn.clone();
+        
+        sync_btn.connect_clicked(move |_| {
+            let provider = match pr_sync.selected() {
+                1 => "Gemini",
+                2 => "OpenAI",
+                _ => "Nvidia",
+            }.to_string();
+            let key = kr_sync.text().to_string();
+            let mr_c = mr_sync.clone();
+            let sb_c = sb_sync.clone();
+            
+            sb_c.set_label("Syncing...");
+            sb_c.set_sensitive(false);
+            
+            gtk::glib::spawn_future_local(async move {
+                let mut config = OpenAIConfig::new().with_api_key(&key);
+                if provider == "Nvidia" {
+                    config = config.with_api_base("https://integrate.api.nvidia.com/v1");
+                } else if provider == "Gemini" {
+                    config = config.with_api_base("https://generativelanguage.googleapis.com/v1beta/openai/");
+                }
+                
+                let client = Client::with_config(config);
+                match client.models().list().await {
+                    Ok(resp) => {
+                        let mut models: Vec<String> = resp.data.iter()
+                            .map(|m| m.id.clone())
+                            .filter(|id| !id.contains("vision") && !id.contains("embedding") && !id.contains("tts"))
+                            .collect();
+                        models.sort();
+                        
+                        let new_list = gtk::StringList::new(&models.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
+                        mr_c.set_model(Some(&new_list));
+                        sb_c.set_label("Sync Complete!");
+                    }
+                    Err(e) => {
+                        sb_c.set_label(&format!("Error: {:?}", e));
+                    }
+                }
+                sb_c.set_sensitive(true);
+            });
         });
         
         let as_save = as_clone_btn.clone();
@@ -876,7 +875,6 @@ fn build_ui(app: &adw::Application) {
                      break;
                 }
                 if chunk == "[DONE]" {
-                     // Check if there is a command in the full response after it finishes
                      if full_ai_response.contains("[CLICK: ") && full_ai_response.contains("]") {
                          let start = full_ai_response.find("[CLICK: ").unwrap() + 8;
                          let end = full_ai_response[start..].find(']').unwrap() + start;
