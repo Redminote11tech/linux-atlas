@@ -21,4 +21,8 @@ Built in **Rust** using **WebKitGTK** and **libadwaita**.
 This project is licensed under the **GPL V3**. 
 Concept inspired by OpenAI's "ChatGPT Atlas". 
 Built by redminote11tech
-Credits to all Libraries used
+Acknowledgments:
+
+    UI built with GTK4 and libadwaita.
+
+    Browser engine powered by WebKitGTK, licensed under the LGPL and BSD licenses. Copyright (C) Apple Inc. and other contributors.
